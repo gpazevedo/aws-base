@@ -1377,6 +1377,5 @@ make validate-terraform
 
 ---
 
-**Last Updated:** November 2025
 **Terraform Version:** >= 1.13
 **AWS Provider Version:** >= 5.0

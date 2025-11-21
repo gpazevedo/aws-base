@@ -573,7 +573,7 @@ AWS Console → Cost Explorer → Cost & Usage Reports
 Filter by: Service, Tag, Resource
 ```
 
-###Tagged Resources
+### Tagged Resources
 
 **Tag resources for cost tracking:**
 

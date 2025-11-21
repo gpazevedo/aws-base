@@ -10,9 +10,9 @@ Automated code quality enforcement using **Ruff** (formatting + linting) and **P
 
 | Tool | Purpose | Version | Speed |
 |------|---------|---------|-------|
-| **Ruff** | Format + Lint | v0.14.5 (Nov 2025) | 10-100x faster than Black/Flake8 |
-| **Pyright** | Type Check | v1.1.407 (Nov 2025) | Fast, accurate |
-| **pre-commit** | Git Hooks | v6.0.0 (Nov 2025) | Manages hooks |
+| **Ruff** | Format + Lint | Latest | 10-100x faster than Black/Flake8 |
+| **Pyright** | Type Check | Latest | Fast, accurate |
+| **pre-commit** | Git Hooks | Latest | Manages hooks |
 
 ### Why These Tools?
 

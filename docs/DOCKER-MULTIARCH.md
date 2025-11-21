@@ -170,13 +170,10 @@ make docker-push-prod
 ./scripts/docker-push.sh dev app Dockerfile.lambda
 ```
 
-**Tags created:**
-- `dev-20250116-143000` (no suffix, implicit arm64)
-- `dev-20250116-143000-arm64` (explicit architecture)
-- `dev-arm64-latest`
-- `dev-latest` (no suffix, implicit arm64)
-- `abc1234-arm64` (git SHA)
-- `abc1234` (git SHA, no suffix, implicit arm64)
+**Tags created (hierarchical format):**
+- `api-dev-2025-11-18-16-25-abc1234` (service-env-datetime-sha, unique version)
+- `api-dev-latest` (latest for this service in this environment)
+- `dev-latest` (latest for any service in this environment)
 
 ## Docker BuildKit Variables
 

@@ -53,6 +53,7 @@ A production-ready Infrastructure as Code (IaC) template for bootstrapping AWS p
 - **🗄️ S3 State Management** - Self-referencing Terraform state with locking
 - **🎯 Multi-Environment** - Dev, test, and prod environments
 - **🐳 Container-Ready** - ECR repositories with vulnerability scanning
+- **🌐 API Gateway Standard** - Centralized API entry point with rate limiting, security, and observability
 
 ### Infrastructure Included
 - S3 bucket for Terraform state (versioned, encrypted)
@@ -167,9 +168,20 @@ START HERE
 │  ┌────────────────────────────────────────────────────────┐   │
 │  │ Application Infrastructure (Per Environment)           │   │
 │  │                                                        │   │
-│  │  • Lambda Functions (if enabled)                       │   │
-│  │  • App Runner Services (if enabled)                    │   │
-│  │  • EKS Workloads (if enabled)                          │   │
+│  │  ┌──────────────────────────────────────────────────┐  │   │
+│  │  │ API Gateway (Standard Entry Point)              │  │   │
+│  │  │  • Rate limiting & throttling                    │  │   │
+│  │  │  • CloudWatch logging & X-Ray tracing            │  │   │
+│  │  │  • CORS & security policies                      │  │   │
+│  │  └──────────────────────┬───────────────────────────┘  │   │
+│  │                         │                              │   │
+│  │                         ↓                              │   │
+│  │  • Lambda Functions (AWS_PROXY integration)           │   │
+│  │  • App Runner Services (HTTP_PROXY integration)       │   │
+│  │  • EKS Workloads (future support)                     │   │
+│  │                                                        │   │
+│  │  Note: Direct access URLs disabled in cloud           │   │
+│  │        (enabled for local development only)           │   │
 │  └────────────────────────────────────────────────────────┘   │
 └───────────────────────────────────────────────────────────────┘
 ```
@@ -233,22 +245,28 @@ make setup-terraform-lambda  # Optional: generates example Lambda Terraform
 make app-init-dev
 make app-apply-dev
 
-# Test Lambda
-LAMBDA_URL=$(cd terraform && terraform output -raw lambda_function_url)
-curl $LAMBDA_URL
+# Get primary endpoint (API Gateway URL for cloud, Lambda URL for local)
+PRIMARY_URL=$(cd terraform && terraform output -raw primary_endpoint)
+
+# Test your API
+curl $PRIMARY_URL
 # Expected: {"message":"Hello, World!","version":"0.1.0"}
 
 # Test health endpoint
-curl $LAMBDA_URL/health
+curl $PRIMARY_URL/health
 
 # View interactive API documentation
-open "$LAMBDA_URL/docs"  # or visit in browser
+open "$PRIMARY_URL/docs"  # or visit in browser
 ```
 
 > 📖 **API Documentation:** See [API-ENDPOINTS.md](docs/API-ENDPOINTS.md) for all available endpoints including:
 > - Health checks: `/health`, `/liveness`, `/readiness`
 > - API endpoints: `/`, `/greet`, `/error`
 > - Interactive docs: `/docs` (Swagger UI), `/redoc`, `/openapi.json`
+>
+> **Access Mode:**
+> - **Cloud deployments (dev, test, prod)**: API Gateway URL (standard)
+> - **Local development**: Lambda Function URL (when `enable_direct_access = true`)
 
 ### 5. Configure GitHub Actions (Optional)
 
@@ -588,16 +606,26 @@ git push origin v0.1.0
 #### Test Deployed API
 
 ```bash
-# Get function URL (if using Lambda Function URLs)
-# Replace 'my-project' with your actual project name
-aws lambda get-function-url-config \
-  --function-name my-project-api-dev
+# Get primary endpoint (API Gateway by default)
+cd terraform
+terraform output primary_endpoint
 
-# Test the endpoint using the Function URL
-# Note: The actual endpoint path depends on your API Gateway or Function URL configuration
-curl -X POST https://<function-url> \
-  -H "Content-Type: application/json" \
-  -d '{"name": "World"}'
+# Get deployment mode to see what's configured
+terraform output deployment_mode
+
+# Test the API Gateway endpoint
+PRIMARY_URL=$(terraform output -raw primary_endpoint)
+curl $PRIMARY_URL
+curl $PRIMARY_URL/health
+curl $PRIMARY_URL/docs
+
+# View API Gateway configuration
+terraform output api_gateway_url
+terraform output api_gateway_id
+
+# For local development with direct access
+# (when enable_direct_access = true in environments/local.tfvars)
+terraform output lambda_function_url
 ```
 
 ### Deployment Workflow Summary
@@ -736,7 +764,22 @@ ecr_repositories = []  # Single repository (recommended)
 python_version = "3.13"
 ```
 
-**Result**: Lambda functions with single ECR repository for container images
+```hcl
+# terraform/environments/dev.tfvars
+# API Gateway configuration (standard mode)
+enable_api_gateway_standard = true   # API Gateway entry point
+enable_direct_access        = false  # Disable Lambda Function URLs
+
+# Rate limiting for dev
+api_throttle_burst_limit = 1000
+api_throttle_rate_limit  = 500
+
+# Logging
+api_logging_level = "INFO"
+enable_xray_tracing = true
+```
+
+**Result**: Lambda functions with API Gateway as standard entry point, rate limiting, and comprehensive logging
 
 ---
 
@@ -798,7 +841,31 @@ lambda_use_container_image = true
 python_version = "3.13"
 ```
 
-**Result**: Both Lambda and App Runner infrastructure
+**Result**: Both Lambda and App Runner infrastructure with API Gateway integration
+
+---
+
+### Example 5: Local Development (Direct Access)
+
+```hcl
+# terraform/environments/local.tfvars
+# Local development configuration
+enable_api_gateway_standard = false  # Skip API Gateway overhead
+enable_direct_access        = true   # Enable Lambda Function URLs
+
+# Open CORS for local testing
+cors_allow_origins = ["*"]
+cors_allow_methods = ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+```
+
+```bash
+# Deploy locally
+terraform init -backend-config=environments/dev-backend.hcl
+terraform plan -var-file="environments/local.tfvars"
+terraform apply -var-file="environments/local.tfvars"
+```
+
+**Result**: Lambda with direct Function URL for fast local iteration without API Gateway
 
 ---
 
@@ -1207,6 +1274,44 @@ aws-base/
 2. Check repository name matches `github_repo` variable
 3. Ensure OIDC provider thumbprint is current
 
+### No endpoint available after deployment
+**Solution**:
+1. Check deployment mode: `terraform output deployment_mode`
+2. Ensure either `enable_api_gateway_standard = true` OR `enable_direct_access = true` in your tfvars
+3. API Gateway is the default for cloud deployments (dev, test, prod)
+4. Direct access is for local development only
+
+### API Gateway returns 403 Forbidden
+**Solution**:
+1. Check Lambda permissions: `aws_lambda_permission.api_gateway` must exist
+2. Verify API Gateway deployment: `terraform output api_gateway_id`
+3. Check IAM roles have `api_gateway_management` policy attached
+4. Review CloudWatch logs: `terraform output cloudwatch_log_group_api_gateway`
+
+### API Gateway rate limiting too restrictive
+**Solution**:
+1. Adjust throttling in your tfvars file:
+   ```hcl
+   api_throttle_burst_limit = 5000  # Increase as needed
+   api_throttle_rate_limit  = 10000 # Requests per second
+   ```
+2. Check CloudWatch metrics for throttled requests
+3. Monitor `4XXError` and `5XXError` metrics in API Gateway console
+
+### API Gateway logs not appearing in CloudWatch
+**Solution**:
+1. Verify logging is enabled: Check `api_logging_level` in tfvars (should be "INFO" or "ERROR")
+2. Check log group exists: `terraform output cloudwatch_log_group_api_gateway`
+3. Ensure IAM role has CloudWatch Logs permissions
+4. Wait 1-2 minutes for logs to appear after first request
+
+### Lambda function works but API Gateway fails
+**Solution**:
+1. Test Lambda directly: `aws lambda invoke --function-name <name> output.json`
+2. Check API Gateway integration: Integration type should be `AWS_PROXY`
+3. Verify Lambda response format matches API Gateway requirements (statusCode, body, headers)
+4. Review X-Ray traces if enabled: `enable_xray_tracing = true`
+
 ### EKS nodes not joining cluster
 **Solution**:
 1. Check security group allows node-to-control-plane communication
@@ -1219,6 +1324,8 @@ aws-base/
 2. Remove unnecessary dependencies from `pyproject.toml`
 3. Consider Lambda layers for shared dependencies
 4. Use `--no-cache` in `uv sync`
+
+**For more details on API Gateway configuration**, see [terraform/README.md](terraform/README.md)
 
 ---
 

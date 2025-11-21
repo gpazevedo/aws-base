@@ -969,16 +969,21 @@ Each compute option has **separate IAM roles** with minimal permissions:
 - Read/write to ECR
 - Read from S3 state bucket
 - CloudWatch Logs (write only)
+- **API Gateway management** (REST API, usage plans, deployments)
+- Lambda Function URL configuration (for local development)
 
 **App Runner Deployment Role:**
 - Create/update App Runner services
 - Read/write to ECR
 - Read from S3 state bucket
+- **API Gateway management** (REST API, usage plans, deployments)
+- VPC Link configuration (for API Gateway integration)
 
 **EKS Deployment Role:**
 - Update EKS cluster configuration
 - Manage Kubernetes resources
 - Read/write to ECR
+- **API Gateway management** (future support)
 
 ### 4. VPC Security
 

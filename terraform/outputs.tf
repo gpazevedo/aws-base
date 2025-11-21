@@ -54,6 +54,17 @@ output "cloudwatch_log_group_api_gateway" {
   value       = local.api_gateway_enabled ? module.api_gateway_shared[0].cloudwatch_log_group_name : "Not enabled"
 }
 
+output "api_key_id" {
+  description = "API Key ID (if enabled)"
+  value       = local.api_gateway_enabled && var.enable_api_key ? module.api_gateway_shared[0].api_key_id : "Not enabled"
+}
+
+output "api_key_value" {
+  description = "API Key value (sensitive, if enabled)"
+  value       = local.api_gateway_enabled && var.enable_api_key ? module.api_gateway_shared[0].api_key_value : null
+  sensitive   = true
+}
+
 # =============================================================================
 # Common Outputs
 # =============================================================================

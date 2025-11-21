@@ -51,3 +51,23 @@ output "cloudwatch_log_group_arn" {
   description = "CloudWatch log group ARN for API Gateway"
   value       = aws_cloudwatch_log_group.api_gateway.arn
 }
+
+# =============================================================================
+# API Key Outputs
+# =============================================================================
+
+output "api_key_id" {
+  description = "ID of the API Key (if enabled)"
+  value       = var.enable_api_key ? aws_api_gateway_api_key.api_key[0].id : null
+}
+
+output "api_key_value" {
+  description = "Value of the API Key (sensitive, if enabled)"
+  value       = var.enable_api_key ? aws_api_gateway_api_key.api_key[0].value : null
+  sensitive   = true
+}
+
+output "usage_plan_id" {
+  description = "ID of the Usage Plan (if API Key is enabled)"
+  value       = var.enable_api_key ? aws_api_gateway_usage_plan.usage_plan[0].id : null
+}

@@ -83,6 +83,34 @@ variable "enable_caching" {
 }
 
 # =============================================================================
+# API Key Authentication
+# =============================================================================
+
+variable "enable_api_key" {
+  description = "Enable API Key authentication"
+  type        = bool
+  default     = false
+}
+
+variable "api_key_name" {
+  description = "Name for the API Key (if enabled)"
+  type        = string
+  default     = ""
+}
+
+variable "usage_plan_quota_limit" {
+  description = "Maximum number of requests per period (0 = unlimited)"
+  type        = number
+  default     = 0
+}
+
+variable "usage_plan_quota_period" {
+  description = "Time period for quota (DAY, WEEK, MONTH)"
+  type        = string
+  default     = "MONTH"
+}
+
+# =============================================================================
 # Tags
 # =============================================================================
 

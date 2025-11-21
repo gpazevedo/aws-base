@@ -369,10 +369,11 @@ resource "aws_api_gateway_resource" "proxy" {
 resource "aws_api_gateway_method" "proxy" {
   count = var.enable_api_gateway ? 1 : 0
 
-  rest_api_id   = aws_api_gateway_rest_api.api[0].id
-  resource_id   = aws_api_gateway_resource.proxy[0].id
-  http_method   = "ANY"
-  authorization = "NONE"
+  rest_api_id      = aws_api_gateway_rest_api.api[0].id
+  resource_id      = aws_api_gateway_resource.proxy[0].id
+  http_method      = "ANY"
+  authorization    = "NONE"
+  api_key_required = var.enable_api_key
 }
 
 # Lambda integration
@@ -421,6 +422,62 @@ resource "aws_lambda_permission" "api_gateway" {
   function_name = aws_lambda_function.api.function_name
   principal     = "apigateway.amazonaws.com"
   source_arn    = "${aws_api_gateway_rest_api.api[0].execution_arn}/*/*"
+}
+
+# =============================================================================
+# API Key Authentication (Optional)
+# =============================================================================
+
+# API Key
+resource "aws_api_gateway_api_key" "api_key" {
+  count = var.enable_api_gateway && var.enable_api_key ? 1 : 0
+
+  name        = var.api_key_name != "" ? var.api_key_name : "${var.project_name}-${var.environment}-api-key"
+  description = "API Key for ${var.project_name} ${var.environment} API"
+  enabled     = true
+
+  tags = {
+    Name        = var.api_key_name != "" ? var.api_key_name : "${var.project_name}-${var.environment}-api-key"
+    Project     = var.project_name
+    Environment = var.environment
+  }
+}
+
+# Usage Plan
+resource "aws_api_gateway_usage_plan" "usage_plan" {
+  count = var.enable_api_gateway && var.enable_api_key ? 1 : 0
+
+  name        = "${var.project_name}-${var.environment}-usage-plan"
+  description = "Usage plan for ${var.project_name} ${var.environment} API"
+
+  api_stages {
+    api_id = aws_api_gateway_rest_api.api[0].id
+    stage  = aws_api_gateway_stage.api[0].stage_name
+  }
+
+  # Quota (optional)
+  dynamic "quota_settings" {
+    for_each = var.api_usage_plan_quota_limit > 0 ? [1] : []
+    content {
+      limit  = var.api_usage_plan_quota_limit
+      period = var.api_usage_plan_quota_period
+    }
+  }
+
+  tags = {
+    Name        = "${var.project_name}-${var.environment}-usage-plan"
+    Project     = var.project_name
+    Environment = var.environment
+  }
+}
+
+# Associate API Key with Usage Plan
+resource "aws_api_gateway_usage_plan_key" "usage_plan_key" {
+  count = var.enable_api_gateway && var.enable_api_key ? 1 : 0
+
+  key_id        = aws_api_gateway_api_key.api_key[0].id
+  key_type      = "API_KEY"
+  usage_plan_id = aws_api_gateway_usage_plan.usage_plan[0].id
 }
 EOF
 
@@ -481,6 +538,17 @@ output "api_gateway_id" {
 output "api_gateway_stage" {
   description = "API Gateway stage name"
   value       = local.api_gateway_enabled ? aws_api_gateway_stage.api[0].stage_name : "Not enabled"
+}
+
+output "api_key_id" {
+  description = "API Key ID (if enabled)"
+  value       = local.api_gateway_enabled && var.enable_api_key ? aws_api_gateway_api_key.api_key[0].id : "Not enabled"
+}
+
+output "api_key_value" {
+  description = "API Key value (sensitive, if enabled)"
+  value       = local.api_gateway_enabled && var.enable_api_key ? aws_api_gateway_api_key.api_key[0].value : null
+  sensitive   = true
 }
 
 # =============================================================================
@@ -563,6 +631,12 @@ enable_api_caching = false
 cors_allow_origins = $([ "$ENV" = "prod" ] && echo '["https://yourdomain.com"]' || echo '["*"]')
 cors_allow_methods = ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
 cors_allow_headers = ["Content-Type", "Authorization", "X-Requested-With"]
+
+# API Key Authentication (Optional)
+enable_api_key              = false  # Set to true to enable API Key authentication
+api_key_name                = ""     # Auto-generated if not specified
+api_usage_plan_quota_limit  = 0      # Max requests per period (0 = unlimited)
+api_usage_plan_quota_period = "MONTH" # DAY, WEEK, or MONTH
 
 # Additional tags
 additional_tags = {

@@ -1,84 +1,63 @@
 # =============================================================================
-# API Gateway Configuration (Optional)
+# API Gateway Configuration (Standard Mode)
 # =============================================================================
-# Uncomment this file to use API Gateway instead of Lambda Function URLs
+# This file configures API Gateway as the standard entry point for services
+# Uses modular architecture for shared configuration and service-specific integrations
 # =============================================================================
 
-# API Gateway REST API
-resource "aws_api_gateway_rest_api" "api" {
-  count = var.enable_api_gateway ? 1 : 0
-
-  name        = "${var.project_name}-${var.environment}-api"
-  description = "API Gateway for ${var.project_name} ${var.environment}"
-
-  endpoint_configuration {
-    types = ["REGIONAL"]
-  }
+locals {
+  # Determine if API Gateway should be enabled (standard mode or legacy enable_api_gateway)
+  api_gateway_enabled = var.enable_api_gateway_standard || var.enable_api_gateway
 }
 
-# Root resource proxy
-resource "aws_api_gateway_resource" "proxy" {
-  count = var.enable_api_gateway ? 1 : 0
+# =============================================================================
+# Shared API Gateway Module
+# =============================================================================
+# Creates REST API, stage, deployment, logging, and rate limiting
 
-  rest_api_id = aws_api_gateway_rest_api.api[0].id
-  parent_id   = aws_api_gateway_rest_api.api[0].root_resource_id
-  path_part   = "{proxy+}"
+module "api_gateway_shared" {
+  source = "./modules/api-gateway-shared"
+  count  = local.api_gateway_enabled ? 1 : 0
+
+  project_name = var.project_name
+  environment  = var.environment
+  api_name     = "${var.project_name}-${var.environment}-api"
+
+  # Rate Limiting
+  throttle_burst_limit = var.api_throttle_burst_limit
+  throttle_rate_limit  = var.api_throttle_rate_limit
+
+  # Logging and Monitoring
+  log_retention_days   = var.api_log_retention_days
+  api_logging_level    = var.api_logging_level
+  enable_data_trace    = var.enable_api_data_trace
+  enable_xray_tracing  = var.enable_xray_tracing
+
+  # Caching
+  enable_caching = var.enable_api_caching
+
+  tags = var.additional_tags
 }
 
-# ANY method for proxy
-resource "aws_api_gateway_method" "proxy" {
-  count = var.enable_api_gateway ? 1 : 0
+# =============================================================================
+# Lambda Integration Module
+# =============================================================================
+# Integrates Lambda function with API Gateway using AWS_PROXY
 
-  rest_api_id   = aws_api_gateway_rest_api.api[0].id
-  resource_id   = aws_api_gateway_resource.proxy[0].id
-  http_method   = "ANY"
-  authorization = "NONE"
-}
+module "api_gateway_lambda" {
+  source = "./modules/api-gateway-lambda"
+  count  = local.api_gateway_enabled ? 1 : 0
 
-# Lambda integration
-resource "aws_api_gateway_integration" "lambda" {
-  count = var.enable_api_gateway ? 1 : 0
+  # API Gateway from shared module
+  api_id                = module.api_gateway_shared[0].api_id
+  api_root_resource_id  = module.api_gateway_shared[0].root_resource_id
+  api_execution_arn     = module.api_gateway_shared[0].execution_arn
 
-  rest_api_id = aws_api_gateway_rest_api.api[0].id
-  resource_id = aws_api_gateway_method.proxy[0].resource_id
-  http_method = aws_api_gateway_method.proxy[0].http_method
+  # Lambda function
+  lambda_function_name  = aws_lambda_function.api.function_name
+  lambda_function_arn   = aws_lambda_function.api.arn
+  lambda_invoke_arn     = aws_lambda_function.api.invoke_arn
 
-  integration_http_method = "POST"
-  type                    = "AWS_PROXY"
-  uri                     = aws_lambda_function.api.invoke_arn
-}
-
-# Deployment
-resource "aws_api_gateway_deployment" "api" {
-  count = var.enable_api_gateway ? 1 : 0
-
-  depends_on = [
-    aws_api_gateway_integration.lambda
-  ]
-
-  rest_api_id = aws_api_gateway_rest_api.api[0].id
-
-  lifecycle {
-    create_before_destroy = true
-  }
-}
-
-# Stage
-resource "aws_api_gateway_stage" "api" {
-  count = var.enable_api_gateway ? 1 : 0
-
-  deployment_id = aws_api_gateway_deployment.api[0].id
-  rest_api_id   = aws_api_gateway_rest_api.api[0].id
-  stage_name    = var.environment
-}
-
-# Lambda permission for API Gateway
-resource "aws_lambda_permission" "api_gateway" {
-  count = var.enable_api_gateway ? 1 : 0
-
-  statement_id  = "AllowAPIGatewayInvoke"
-  action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.api.function_name
-  principal     = "apigateway.amazonaws.com"
-  source_arn    = "${aws_api_gateway_rest_api.api[0].execution_arn}/*/*"
+  # Configuration
+  enable_root_method    = true
 }

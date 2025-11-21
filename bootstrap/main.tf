@@ -264,6 +264,140 @@ resource "aws_iam_policy" "cloudwatch_logs" {
 }
 
 # =============================================================================
+# Base IAM Policy - API Gateway Management
+# =============================================================================
+# Comprehensive API Gateway permissions for managing REST APIs, usage plans,
+# VPC links, and associated resources
+
+resource "aws_iam_policy" "api_gateway_management" {
+  count = var.enable_lambda || var.enable_apprunner ? 1 : 0
+
+  name        = "${var.project_name}-api-gateway-management"
+  description = "Full API Gateway management for ${var.project_name}"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      # REST API Management
+      {
+        Effect = "Allow"
+        Action = [
+          "apigateway:GET",
+          "apigateway:POST",
+          "apigateway:PUT",
+          "apigateway:DELETE",
+          "apigateway:PATCH"
+        ]
+        Resource = [
+          "arn:aws:apigateway:${var.aws_region}::/restapis/*",
+          "arn:aws:apigateway:${var.aws_region}::/restapis"
+        ]
+      },
+      # Account settings (for CloudWatch Logs role)
+      {
+        Effect = "Allow"
+        Action = [
+          "apigateway:GET",
+          "apigateway:PATCH"
+        ]
+        Resource = "arn:aws:apigateway:${var.aws_region}::/account"
+      },
+      # Usage Plans & API Keys
+      {
+        Effect = "Allow"
+        Action = [
+          "apigateway:GET",
+          "apigateway:POST",
+          "apigateway:PUT",
+          "apigateway:DELETE",
+          "apigateway:PATCH"
+        ]
+        Resource = [
+          "arn:aws:apigateway:${var.aws_region}::/usageplans/*",
+          "arn:aws:apigateway:${var.aws_region}::/usageplans",
+          "arn:aws:apigateway:${var.aws_region}::/apikeys/*",
+          "arn:aws:apigateway:${var.aws_region}::/apikeys"
+        ]
+      },
+      # VPC Links (for private integrations)
+      {
+        Effect = "Allow"
+        Action = [
+          "apigateway:GET",
+          "apigateway:POST",
+          "apigateway:PUT",
+          "apigateway:DELETE",
+          "apigateway:PATCH"
+        ]
+        Resource = [
+          "arn:aws:apigateway:${var.aws_region}::/vpclinks/*",
+          "arn:aws:apigateway:${var.aws_region}::/vpclinks"
+        ]
+      },
+      # CloudWatch Logs for API Gateway
+      {
+        Effect = "Allow"
+        Action = [
+          "logs:CreateLogGroup",
+          "logs:CreateLogStream",
+          "logs:PutLogEvents",
+          "logs:DescribeLogGroups",
+          "logs:DescribeLogStreams",
+          "logs:PutRetentionPolicy",
+          "logs:DeleteLogGroup",
+          "logs:TagLogGroup"
+        ]
+        Resource = "arn:aws:logs:${var.aws_region}:${local.account_id}:log-group:/aws/apigateway/${var.project_name}-*"
+      },
+      # IAM role for CloudWatch Logs (API Gateway account settings)
+      {
+        Effect = "Allow"
+        Action = [
+          "iam:CreateRole",
+          "iam:AttachRolePolicy",
+          "iam:PassRole",
+          "iam:GetRole",
+          "iam:DeleteRole",
+          "iam:DetachRolePolicy",
+          "iam:PutRolePolicy",
+          "iam:DeleteRolePolicy",
+          "iam:GetRolePolicy"
+        ]
+        Resource = "arn:aws:iam::${local.account_id}:role/${var.project_name}-apigateway-*"
+        Condition = {
+          StringEquals = {
+            "iam:PassedToService" = "apigateway.amazonaws.com"
+          }
+        }
+      },
+      # WAF (optional, for API Gateway protection)
+      {
+        Effect = "Allow"
+        Action = [
+          "wafv2:AssociateWebACL",
+          "wafv2:DisassociateWebACL",
+          "wafv2:GetWebACL",
+          "wafv2:GetWebACLForResource",
+          "wafv2:ListWebACLs"
+        ]
+        Resource = "*"
+      },
+      # X-Ray (for tracing)
+      {
+        Effect = "Allow"
+        Action = [
+          "xray:PutTraceSegments",
+          "xray:PutTelemetryRecords"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+
+  tags = local.common_tags
+}
+
+# =============================================================================
 # Environment-Specific IAM Roles
 # =============================================================================
 
@@ -316,6 +450,13 @@ resource "aws_iam_role_policy_attachment" "dev_terraform_state" {
 resource "aws_iam_role_policy_attachment" "dev_cloudwatch_logs" {
   role       = aws_iam_role.github_actions_dev.name
   policy_arn = aws_iam_policy.cloudwatch_logs.arn
+}
+
+resource "aws_iam_role_policy_attachment" "dev_api_gateway" {
+  count = var.enable_lambda || var.enable_apprunner ? 1 : 0
+
+  role       = aws_iam_role.github_actions_dev.name
+  policy_arn = aws_iam_policy.api_gateway_management[0].arn
 }
 
 # Test Environment Role (conditional)
@@ -374,6 +515,13 @@ resource "aws_iam_role_policy_attachment" "test_cloudwatch_logs" {
   policy_arn = aws_iam_policy.cloudwatch_logs.arn
 }
 
+resource "aws_iam_role_policy_attachment" "test_api_gateway" {
+  count = var.enable_test_environment && (var.enable_lambda || var.enable_apprunner) ? 1 : 0
+
+  role       = aws_iam_role.github_actions_test[0].name
+  policy_arn = aws_iam_policy.api_gateway_management[0].arn
+}
+
 # Production Environment Role
 resource "aws_iam_role" "github_actions_prod" {
   name                 = "${var.project_name}-github-actions-prod"
@@ -423,6 +571,13 @@ resource "aws_iam_role_policy_attachment" "prod_terraform_state" {
 resource "aws_iam_role_policy_attachment" "prod_cloudwatch_logs" {
   role       = aws_iam_role.github_actions_prod.name
   policy_arn = aws_iam_policy.cloudwatch_logs.arn
+}
+
+resource "aws_iam_role_policy_attachment" "prod_api_gateway" {
+  count = var.enable_lambda || var.enable_apprunner ? 1 : 0
+
+  role       = aws_iam_role.github_actions_prod.name
+  policy_arn = aws_iam_policy.api_gateway_management[0].arn
 }
 
 # =============================================================================

@@ -356,17 +356,63 @@ curl https://my-project-api-url/openapi.json > api-schema.json
 
 ## Accessing via API Gateway
 
-When deployed to AWS Lambda with API Gateway, your FastAPI application is accessible through an API Gateway endpoint.
+When deployed to AWS, your FastAPI application is accessible through API Gateway (standard for cloud deployments) or Lambda Function URLs (for local development).
 
-### Getting Your API Gateway URL
+### Getting Your API Endpoint
 
-#### Option 1: Lambda Function URL (Recommended for Quick Start)
+#### Option 1: API Gateway URL (Standard for Cloud Deployments)
 
-Lambda Function URLs provide direct HTTP(S) access to your Lambda function without API Gateway.
+API Gateway is the **standard entry point** for all cloud deployments, providing rate limiting, logging, security, and observability features.
 
 **Get the URL:**
 ```bash
-# Get function URL from Terraform output
+# Get primary endpoint from Terraform output (automatically selects correct URL)
+cd terraform
+terraform output primary_endpoint
+
+# Get API Gateway specific URL
+terraform output api_gateway_url
+
+# Check deployment mode
+terraform output deployment_mode
+```
+
+**URL Format:**
+```
+https://<api-id>.execute-api.<region>.amazonaws.com/<stage>/
+```
+
+**Example:**
+```bash
+# Get primary endpoint
+PRIMARY_URL=$(cd terraform && terraform output -raw primary_endpoint)
+
+# Health check
+curl $PRIMARY_URL/health
+
+# Greet endpoint
+curl "$PRIMARY_URL/greet?name=Alice"
+
+# Interactive docs
+open "$PRIMARY_URL/docs"  # macOS
+xdg-open "$PRIMARY_URL/docs"  # Linux
+```
+
+**Features:**
+- ✅ Rate limiting and throttling (configurable)
+- ✅ CloudWatch access logs
+- ✅ X-Ray distributed tracing
+- ✅ CORS configuration
+- ✅ WAF integration ready
+- ✅ Custom domain support
+
+#### Option 2: Lambda Function URL (Local Development Only)
+
+Lambda Function URLs provide direct HTTP(S) access without API Gateway overhead. **Only enabled for local development** (`enable_direct_access = true`).
+
+**Get the URL:**
+```bash
+# Get function URL from Terraform output (only when enable_direct_access = true)
 cd terraform
 terraform output lambda_function_url
 
@@ -384,7 +430,7 @@ https://<unique-id>.lambda-url.<region>.on.aws/
 
 **Example:**
 ```bash
-# Test your Lambda via Function URL
+# Test your Lambda via Function URL (local development)
 FUNCTION_URL=$(cd terraform && terraform output -raw lambda_function_url)
 
 # Health check
@@ -398,101 +444,50 @@ open "$FUNCTION_URL/docs"  # macOS
 xdg-open "$FUNCTION_URL/docs"  # Linux
 ```
 
-#### Option 2: API Gateway (For Production)
+**When to use:**
+- Local development and testing
+- Fast iteration without API Gateway overhead
+- Set `enable_direct_access = true` in `environments/local.tfvars`
 
-API Gateway provides additional features like rate limiting, API keys, custom domains, etc.
+**When NOT to use:**
+- Production deployments (use API Gateway instead)
+- Cloud environments requiring rate limiting
+- When you need centralized logging and monitoring
 
-**Get the URL:**
-```bash
-# From AWS Console
-# Services → API Gateway → Your API → Stages → dev → Invoke URL
+### API Gateway Configuration
 
-# Or use AWS CLI
-aws apigateway get-rest-apis \
-  --query 'items[?name==`my-project-api`].id' \
-  --output text
+API Gateway is configured by default using Terraform modules. See [terraform/README.md](../terraform/README.md) for detailed configuration options.
 
-# Then get stage URL
-API_ID=<API_ID>
-aws apigateway get-stage \
-  --rest-api-id $API_ID \
-  --stage-name dev \
-  --query 'invoke_url' \
-  --output text
-```
+**Key configuration variables** (`terraform/environments/{env}.tfvars`):
 
-**URL Format:**
-```
-https://<api-id>.execute-api.<region>.amazonaws.com/<stage>/
-```
-
-**Example:**
-```bash
-API_URL="https://abc123.execute-api.us-east-1.amazonaws.com/dev"
-
-# Health check
-curl $API_URL/health
-
-# Greet with query parameter
-curl "$API_URL/greet?name=Bob"
-
-# Greet with POST
-curl -X POST $API_URL/greet \
-  -H "Content-Type: application/json" \
-  -d '{"name": "Charlie"}'
-
-# View interactive docs
-open "$API_URL/docs"
-```
-
-### Setting Up API Gateway (Optional)
-
-If you want full API Gateway features, add this to your Terraform:
-
-**`terraform/resources/api-gateway.tf`:**
 ```hcl
-resource "aws_apigatewayv2_api" "lambda" {
-  name          = "${var.project_name}-api"
-  protocol_type = "HTTP"
+# Enable API Gateway (standard for cloud)
+enable_api_gateway_standard = true
+enable_direct_access        = false
 
-  cors_configuration {
-    allow_origins = ["*"]
-    allow_methods = ["*"]
-    allow_headers = ["*"]
-  }
-}
+# Rate limiting
+api_throttle_burst_limit = 5000  # Burst capacity
+api_throttle_rate_limit  = 10000 # Requests per second
 
-resource "aws_apigatewayv2_stage" "lambda" {
-  api_id      = aws_apigatewayv2_api.lambda.id
-  name        = var.environment
-  auto_deploy = true
-}
+# Logging
+api_log_retention_days = 7
+api_logging_level      = "INFO"  # OFF, ERROR, INFO
+enable_xray_tracing    = true
 
-resource "aws_apigatewayv2_integration" "lambda" {
-  api_id             = aws_apigatewayv2_api.lambda.id
-  integration_type   = "AWS_PROXY"
-  integration_uri    = aws_lambda_function.api.invoke_arn
-  integration_method = "POST"
-}
-
-resource "aws_apigatewayv2_route" "lambda" {
-  api_id    = aws_apigatewayv2_api.lambda.id
-  route_key = "$default"
-  target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
-}
-
-resource "aws_lambda_permission" "api_gateway" {
-  statement_id  = "AllowAPIGatewayInvoke"
-  action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.api.function_name
-  principal     = "apigateway.amazonaws.com"
-  source_arn    = "${aws_apigatewayv2_api.lambda.execution_arn}/*/*"
-}
-
-output "api_gateway_url" {
-  value = aws_apigatewayv2_stage.lambda.invoke_url
-}
+# CORS
+cors_allow_origins = ["*"]
+cors_allow_methods = ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+cors_allow_headers = ["Content-Type", "Authorization"]
 ```
+
+**Architecture:**
+
+The API Gateway implementation uses a modular architecture:
+- `modules/api-gateway-shared/` - Shared API Gateway configuration (rate limiting, logging, security)
+- `modules/api-gateway-lambda/` - Lambda integration (AWS_PROXY)
+- `modules/api-gateway-apprunner/` - App Runner integration (HTTP_PROXY)
+
+See [terraform/modules/*/README.md](../terraform/modules/) for module documentation
 
 ---
 

@@ -147,10 +147,96 @@ variable "lambda_architecture" {
   default     = "arm64"
 }
 
-variable "enable_api_gateway" {
-  description = "Enable API Gateway for Lambda functions"
+# =============================================================================
+# API Gateway Configuration (Standard Mode)
+# =============================================================================
+
+variable "enable_api_gateway_standard" {
+  description = "Enable API Gateway as standard entry point (recommended for cloud deployments)"
   type        = bool
   default     = true
+}
+
+variable "enable_direct_access" {
+  description = "Enable direct access URLs (Lambda Function URLs, App Runner direct). Set to true for local development."
+  type        = bool
+  default     = false
+}
+
+# Legacy variable for backward compatibility
+variable "enable_api_gateway" {
+  description = "DEPRECATED: Use enable_api_gateway_standard instead. Enable API Gateway for Lambda functions"
+  type        = bool
+  default     = true
+}
+
+# Rate Limiting / Throttling
+variable "api_throttle_burst_limit" {
+  description = "API Gateway throttle burst limit (requests)"
+  type        = number
+  default     = 5000
+}
+
+variable "api_throttle_rate_limit" {
+  description = "API Gateway throttle rate limit (requests per second)"
+  type        = number
+  default     = 10000
+}
+
+# Logging and Monitoring
+variable "api_log_retention_days" {
+  description = "CloudWatch log retention for API Gateway logs (days)"
+  type        = number
+  default     = 7
+}
+
+variable "api_logging_level" {
+  description = "API Gateway logging level (OFF, ERROR, INFO)"
+  type        = string
+  default     = "INFO"
+
+  validation {
+    condition     = contains(["OFF", "ERROR", "INFO"], var.api_logging_level)
+    error_message = "Logging level must be OFF, ERROR, or INFO"
+  }
+}
+
+variable "enable_api_data_trace" {
+  description = "Enable full request/response data logging (verbose, use with caution)"
+  type        = bool
+  default     = false
+}
+
+variable "enable_xray_tracing" {
+  description = "Enable AWS X-Ray tracing for API Gateway"
+  type        = bool
+  default     = false
+}
+
+# Caching
+variable "enable_api_caching" {
+  description = "Enable API Gateway caching"
+  type        = bool
+  default     = false
+}
+
+# CORS Configuration
+variable "cors_allow_origins" {
+  description = "CORS allowed origins"
+  type        = list(string)
+  default     = ["*"]
+}
+
+variable "cors_allow_methods" {
+  description = "CORS allowed HTTP methods"
+  type        = list(string)
+  default     = ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+}
+
+variable "cors_allow_headers" {
+  description = "CORS allowed headers"
+  type        = list(string)
+  default     = ["Content-Type", "Authorization", "X-Requested-With"]
 }
 
 variable "additional_tags" {
@@ -230,16 +316,18 @@ resource "aws_cloudwatch_log_group" "lambda_api" {
   }
 }
 
-# Lambda Function URL (alternative to API Gateway)
+# Lambda Function URL (only when direct access is enabled)
 resource "aws_lambda_function_url" "api" {
+  count = var.enable_direct_access ? 1 : 0
+
   function_name      = aws_lambda_function.api.function_name
   authorization_type = "NONE"  # Change to "AWS_IAM" for authentication
 
   cors {
     allow_credentials = true
-    allow_origins     = ["*"]
-    allow_methods     = ["*"]
-    allow_headers     = ["*"]
+    allow_origins     = var.cors_allow_origins
+    allow_methods     = var.cors_allow_methods
+    allow_headers     = var.cors_allow_headers
     max_age          = 86400
   }
 }
@@ -344,6 +432,17 @@ cat > "$TERRAFORM_DIR/outputs.tf" <<'EOF'
 # =============================================================================
 # Application Infrastructure - Outputs
 # =============================================================================
+# NOTE: This is a simplified version for initial setup.
+# For advanced setup with API Gateway modules, see the aws-base repository.
+# =============================================================================
+
+locals {
+  api_gateway_enabled = var.enable_api_gateway_standard || var.enable_api_gateway
+}
+
+# =============================================================================
+# Lambda Outputs
+# =============================================================================
 
 output "lambda_function_name" {
   description = "Name of the Lambda function"
@@ -356,19 +455,37 @@ output "lambda_function_arn" {
 }
 
 output "lambda_function_url" {
-  description = "Lambda Function URL endpoint"
-  value       = aws_lambda_function_url.api.function_url
+  description = "Lambda Function URL endpoint (only when direct access is enabled)"
+  value       = var.enable_direct_access ? aws_lambda_function_url.api[0].function_url : "Direct access disabled - use API Gateway"
 }
 
-output "api_gateway_url" {
-  description = "API Gateway endpoint URL"
-  value       = var.enable_api_gateway ? aws_api_gateway_stage.api[0].invoke_url : "Not enabled"
-}
-
-output "cloudwatch_log_group" {
+output "cloudwatch_log_group_lambda" {
   description = "CloudWatch Log Group name for Lambda"
   value       = aws_cloudwatch_log_group.lambda_api.name
 }
+
+# =============================================================================
+# API Gateway Outputs (Simplified)
+# =============================================================================
+
+output "api_gateway_url" {
+  description = "API Gateway endpoint URL (standard entry point)"
+  value       = local.api_gateway_enabled ? aws_api_gateway_stage.api[0].invoke_url : "Not enabled"
+}
+
+output "api_gateway_id" {
+  description = "API Gateway REST API ID"
+  value       = local.api_gateway_enabled ? aws_api_gateway_rest_api.api[0].id : "Not enabled"
+}
+
+output "api_gateway_stage" {
+  description = "API Gateway stage name"
+  value       = local.api_gateway_enabled ? aws_api_gateway_stage.api[0].stage_name : "Not enabled"
+}
+
+# =============================================================================
+# Common Outputs
+# =============================================================================
 
 output "ecr_repository_url" {
   description = "ECR repository URL for container images"
@@ -378,6 +495,18 @@ output "ecr_repository_url" {
 output "environment" {
   description = "Current environment"
   value       = var.environment
+}
+
+output "deployment_mode" {
+  description = "Current deployment mode (api-gateway-standard or direct-access)"
+  value       = var.enable_api_gateway_standard ? "api-gateway-standard" : (var.enable_direct_access ? "direct-access" : "legacy-api-gateway")
+}
+
+output "primary_endpoint" {
+  description = "Primary application endpoint (use this for accessing the application)"
+  value = local.api_gateway_enabled ? aws_api_gateway_stage.api[0].invoke_url : (
+    var.enable_direct_access ? aws_lambda_function_url.api[0].function_url : "No endpoint configured"
+  )
 }
 EOF
 
@@ -408,8 +537,32 @@ lambda_memory_size  = $([ "$ENV" = "prod" ] && echo "1024" || echo "512")
 lambda_timeout      = $([ "$ENV" = "prod" ] && echo "60" || echo "30")
 lambda_architecture = "arm64"  # or "x86_64"
 
-# API Gateway (optional - Lambda Function URLs are used by default)
-enable_api_gateway = false
+# =============================================================================
+# API Gateway Configuration (Standard Mode)
+# =============================================================================
+# API Gateway is the standard entry point for cloud deployments
+# For local development, set enable_direct_access = true
+
+enable_api_gateway_standard = true   # Enable API Gateway as standard entry point
+enable_direct_access        = false  # Disable direct Lambda URLs (cloud deployment)
+
+# Rate Limiting
+api_throttle_burst_limit = $([ "$ENV" = "prod" ] && echo "5000" || echo "1000")  # Burst limit
+api_throttle_rate_limit  = $([ "$ENV" = "prod" ] && echo "10000" || echo "500")  # Requests per second
+
+# Logging $([ "$ENV" = "prod" ] && echo "(standard for prod)" || echo "(verbose for ${ENV})")
+api_log_retention_days = $([ "$ENV" = "prod" ] && echo "30" || echo "7")
+api_logging_level      = "INFO"
+enable_api_data_trace  = false  # Set to true for detailed request/response logging
+enable_xray_tracing    = $([ "$ENV" = "prod" ] && echo "false" || echo "true")   # Enable X-Ray for debugging
+
+# Caching $([ "$ENV" = "prod" ] && echo "(consider enabling for prod)" || echo "(disabled for ${ENV})")
+enable_api_caching = false
+
+# CORS $([ "$ENV" = "prod" ] && echo "(restrictive for prod)" || echo "(open for ${ENV})")
+cors_allow_origins = $([ "$ENV" = "prod" ] && echo '["https://yourdomain.com"]' || echo '["*"]')
+cors_allow_methods = ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+cors_allow_headers = ["Content-Type", "Authorization", "X-Requested-With"]
 
 # Additional tags
 additional_tags = {

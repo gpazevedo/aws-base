@@ -1,0 +1,64 @@
+# =============================================================================
+# Dockerfile for AWS App Runner (Python 3.13 + uv)
+# =============================================================================
+# This Dockerfile builds an App Runner container image using Python 3.13 and uv
+# App Runner expects the application to listen on port 8080
+#
+# Multi-architecture support:
+# - arm64 (default): For production AWS App Runner (Graviton2)
+# - amd64: For local testing on x86_64 machines
+#
+# Build examples:
+#   docker build --platform=linux/arm64 --build-arg SERVICE_FOLDER=api -t myapp:latest .
+#   docker build --platform=linux/amd64 --build-arg SERVICE_FOLDER=worker -t myapp:latest .
+# =============================================================================
+
+# Service folder argument (defaults to 'api')
+ARG SERVICE_FOLDER=api
+
+# Multi-arch support - TARGETPLATFORM is automatically set by Docker BuildKit
+# When using --platform=linux/arm64, TARGETPLATFORM=linux/arm64
+# When using --platform=linux/amd64, TARGETPLATFORM=linux/amd64
+# The python:3.13-slim multi-arch manifest will pull the correct variant
+ARG TARGETPLATFORM
+FROM --platform=$TARGETPLATFORM python:3.13-slim
+
+# Re-declare ARG after FROM (Docker requirement)
+ARG SERVICE_FOLDER=api
+
+# Install uv - fast Python package installer
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+# Set working directory
+WORKDIR /app
+
+# Install system dependencies (if needed)
+# Uncomment and modify based on your requirements
+# RUN apt-get update && apt-get install -y \
+#     gcc \
+#     && rm -rf /var/lib/apt/lists/*
+
+# Copy dependency files from service folder
+COPY ${SERVICE_FOLDER}/pyproject.toml ${SERVICE_FOLDER}/uv.lock* ./
+
+# Install dependencies using uv
+# --frozen: Use exact versions from uv.lock
+# --no-dev: Skip development dependencies
+RUN uv sync --frozen --no-dev
+
+# Copy all Python files from service folder (will exclude test files in next step)
+COPY ${SERVICE_FOLDER}/*.py ./
+
+# Remove test files
+RUN rm -f test_*.py
+
+# App Runner expects port 8080
+EXPOSE 8080
+
+# Health check endpoint (optional but recommended)
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')" || exit 1
+
+# Run application with uvicorn
+# Adjust based on your framework (FastAPI, Flask, etc.)
+CMD ["uv", "run", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]

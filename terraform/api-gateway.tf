@@ -1,0 +1,63 @@
+# =============================================================================
+# API Gateway Configuration (Standard Mode)
+# =============================================================================
+# This file configures API Gateway as the standard entry point for services
+# Uses modular architecture for shared configuration and service-specific integrations
+# =============================================================================
+
+locals {
+  # Determine if API Gateway should be enabled (standard mode or legacy enable_api_gateway)
+  api_gateway_enabled = var.enable_api_gateway_standard || var.enable_api_gateway
+}
+
+# =============================================================================
+# Shared API Gateway Module
+# =============================================================================
+# Creates REST API, stage, deployment, logging, and rate limiting
+
+module "api_gateway_shared" {
+  source = "./modules/api-gateway-shared"
+  count  = local.api_gateway_enabled ? 1 : 0
+
+  project_name = var.project_name
+  environment  = var.environment
+  api_name     = "${var.project_name}-${var.environment}-api"
+
+  # Rate Limiting
+  throttle_burst_limit = var.api_throttle_burst_limit
+  throttle_rate_limit  = var.api_throttle_rate_limit
+
+  # Logging and Monitoring
+  log_retention_days   = var.api_log_retention_days
+  api_logging_level    = var.api_logging_level
+  enable_data_trace    = var.enable_api_data_trace
+  enable_xray_tracing  = var.enable_xray_tracing
+
+  # Caching
+  enable_caching = var.enable_api_caching
+
+  tags = var.additional_tags
+}
+
+# =============================================================================
+# Lambda Integration Module
+# =============================================================================
+# Integrates Lambda function with API Gateway using AWS_PROXY
+
+module "api_gateway_lambda" {
+  source = "./modules/api-gateway-lambda"
+  count  = local.api_gateway_enabled ? 1 : 0
+
+  # API Gateway from shared module
+  api_id                = module.api_gateway_shared[0].api_id
+  api_root_resource_id  = module.api_gateway_shared[0].root_resource_id
+  api_execution_arn     = module.api_gateway_shared[0].execution_arn
+
+  # Lambda function
+  lambda_function_name  = aws_lambda_function.api.function_name
+  lambda_function_arn   = aws_lambda_function.api.arn
+  lambda_invoke_arn     = aws_lambda_function.api.invoke_arn
+
+  # Configuration
+  enable_root_method    = true
+}

@@ -63,16 +63,20 @@ resource "aws_cloudwatch_log_group" "lambda_api" {
   }
 }
 
-# Lambda Function URL (alternative to API Gateway)
+# Lambda Function URL (for direct access only - local development)
+# In cloud deployments, API Gateway is the standard entry point
+# Enable direct access by setting enable_direct_access = true
 resource "aws_lambda_function_url" "api" {
+  count = var.enable_direct_access ? 1 : 0
+
   function_name      = aws_lambda_function.api.function_name
   authorization_type = "NONE"  # Change to "AWS_IAM" for authentication
 
   cors {
     allow_credentials = true
-    allow_origins     = ["*"]
-    allow_methods     = ["*"]
-    allow_headers     = ["*"]
+    allow_origins     = var.cors_allow_origins
+    allow_methods     = var.cors_allow_methods
+    allow_headers     = var.cors_allow_headers
     max_age          = 86400
   }
 }

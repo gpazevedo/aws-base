@@ -79,7 +79,7 @@ enable_direct_access        = true
 
 ### Security
 - Centralized entry point
-- API keys support (optional)
+- **API Key authentication** (optional) - Secure your API with API keys and usage plans
 - WAF integration ready (optional)
 - Standardized CORS policies
 
@@ -105,7 +105,71 @@ enable_xray_tracing    = false
 cors_allow_origins = ["*"]
 cors_allow_methods = ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
 cors_allow_headers = ["Content-Type", "Authorization"]
+
+# API Key Authentication (Optional)
+enable_api_key              = false  # Set to true to enable
+api_key_name                = ""     # Auto-generated if not specified
+api_usage_plan_quota_limit  = 0      # Max requests per period (0 = unlimited)
+api_usage_plan_quota_period = "MONTH" # DAY, WEEK, or MONTH
 ```
+
+## API Key Authentication
+
+Enable API Key authentication to secure your API endpoints and track usage per key.
+
+### Enabling API Keys
+
+Add to your `environments/{env}.tfvars`:
+
+```hcl
+# Enable API Key authentication
+enable_api_key = true
+api_key_name   = "my-project-dev-api-key"  # Optional, auto-generated if not specified
+
+# Optional: Set usage quotas
+api_usage_plan_quota_limit  = 10000   # Max 10,000 requests per month
+api_usage_plan_quota_period = "MONTH" # DAY, WEEK, or MONTH
+```
+
+### Retrieving API Keys
+
+After applying the configuration:
+
+```bash
+# Get the API Key value (sensitive output)
+terraform output -raw api_key_value
+
+# Get the API Key ID
+terraform output api_key_id
+```
+
+### Using API Keys
+
+Include the API Key in all requests using the `x-api-key` header:
+
+```bash
+# Using curl
+curl -H "x-api-key: YOUR_API_KEY" https://api-url.amazonaws.com/dev/
+
+# Using environment variable
+export API_KEY=$(cd terraform && terraform output -raw api_key_value)
+curl -H "x-api-key: $API_KEY" $PRIMARY_ENDPOINT
+```
+
+### Features
+
+- **Automatic Rate Limiting** - Inherits API Gateway throttle settings
+- **Usage Quotas** - Optional daily/weekly/monthly request limits
+- **Usage Tracking** - Monitor usage per key in CloudWatch
+- **Easy Rotation** - Regenerate keys by recreating the resource
+- **Multiple Keys** - Create different keys for different clients (requires manual configuration)
+
+### Security Notes
+
+- API Key value is marked as `sensitive` in Terraform outputs
+- API Keys work only with API Gateway (not Lambda Function URLs)
+- AWS API Gateway expects the header name `x-api-key` (lowercase)
+- Store API Keys securely (environment variables, secrets managers, etc.)
 
 ## Module Architecture
 
@@ -113,6 +177,7 @@ cors_allow_headers = ["Content-Type", "Authorization"]
 - REST API creation
 - Deployment and stage management
 - Rate limiting and throttling
+- **API Key authentication and usage plans**
 - CloudWatch logging
 - X-Ray tracing
 - Reusable across services
@@ -140,6 +205,8 @@ Key outputs:
 - `api_gateway_url` - API Gateway invoke URL
 - `lambda_function_url` - Lambda direct URL (if direct access enabled)
 - `deployment_mode` - Current deployment mode
+- `api_key_id` - API Key ID (if API Key is enabled)
+- `api_key_value` - API Key value (sensitive, if API Key is enabled)
 - `cloudwatch_log_group_api_gateway` - API Gateway logs
 - `cloudwatch_log_group_lambda` - Lambda logs
 
@@ -204,6 +271,19 @@ If upgrading from Lambda Function URLs:
 ### Rate limiting too restrictive
 - Adjust `api_throttle_burst_limit` and `api_throttle_rate_limit` in tfvars
 - Check CloudWatch metrics for throttled requests
+
+### "Missing Authentication Token" error
+- **With API Keys enabled**: Ensure you're including the `x-api-key` header in requests
+- **Without API Keys**: This error means the request path doesn't match any configured routes
+- Verify the URL path matches your API Gateway configuration
+- Check that you're using the correct HTTP method (GET, POST, etc.)
+
+### API Key not working
+- Verify API Key is enabled: `terraform output api_key_id`
+- Ensure you're using the correct header name: `x-api-key` (lowercase)
+- Check the API Key value: `terraform output -raw api_key_value`
+- Verify API Gateway is enabled (`enable_api_gateway_standard = true`)
+- Review CloudWatch logs for authentication errors
 
 ## Support
 

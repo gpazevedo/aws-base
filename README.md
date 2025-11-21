@@ -54,6 +54,7 @@ A production-ready Infrastructure as Code (IaC) template for bootstrapping AWS p
 - **🎯 Multi-Environment** - Dev, test, and prod environments
 - **🐳 Container-Ready** - ECR repositories with vulnerability scanning
 - **🌐 API Gateway Standard** - Centralized API entry point with rate limiting, security, and observability
+- **🔑 API Key Authentication** - Optional API key authentication with usage plans and quotas
 
 ### Infrastructure Included
 - S3 bucket for Terraform state (versioned, encrypted)

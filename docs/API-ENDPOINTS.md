@@ -400,6 +400,7 @@ xdg-open "$PRIMARY_URL/docs"  # Linux
 
 **Features:**
 - ✅ Rate limiting and throttling (configurable)
+- ✅ **API Key authentication** (optional)
 - ✅ CloudWatch access logs
 - ✅ X-Ray distributed tracing
 - ✅ CORS configuration
@@ -478,7 +479,69 @@ enable_xray_tracing    = true
 cors_allow_origins = ["*"]
 cors_allow_methods = ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
 cors_allow_headers = ["Content-Type", "Authorization"]
+
+# API Key authentication (optional)
+enable_api_key              = false  # Set to true to enable
+api_key_name                = "my-project-dev-api-key"
+api_usage_plan_quota_limit  = 10000   # Max requests per month
+api_usage_plan_quota_period = "MONTH" # DAY, WEEK, or MONTH
 ```
+
+### API Key Authentication
+
+Enable API Key authentication to secure your API endpoints and track usage per key.
+
+**Enable API Keys:**
+
+Update your `terraform/environments/{env}.tfvars`:
+
+```hcl
+enable_api_key = true
+api_key_name   = "my-project-dev-api-key"
+
+# Optional: Usage quotas
+api_usage_plan_quota_limit  = 10000
+api_usage_plan_quota_period = "MONTH"
+```
+
+**Retrieve API Key:**
+
+```bash
+# Get API Key value (sensitive)
+cd terraform
+terraform output -raw api_key_value
+
+# Store in environment variable
+export API_KEY=$(cd terraform && terraform output -raw api_key_value)
+```
+
+**Use API Key in requests:**
+
+Include the `x-api-key` header in all requests:
+
+```bash
+# Health check with API Key
+curl -H "x-api-key: $API_KEY" $PRIMARY_URL/health
+
+# Greet endpoint with API Key
+curl -H "x-api-key: $API_KEY" "$PRIMARY_URL/greet?name=Alice"
+
+# POST request with API Key
+curl -X POST -H "x-api-key: $API_KEY" -H "Content-Type: application/json" \
+  $PRIMARY_URL/greet -d '{"name": "Bob"}'
+```
+
+**Features:**
+- Rate limiting per API Key
+- Usage tracking in CloudWatch
+- Configurable quotas (daily/weekly/monthly)
+- Easy rotation (recreate resource)
+- Multiple keys support (manual configuration)
+
+**Important Notes:**
+- Header name must be `x-api-key` (lowercase)
+- API Keys work only with API Gateway (not Lambda Function URLs)
+- Store API Keys securely (environment variables, secrets managers)
 
 **Architecture:**
 
@@ -625,13 +688,13 @@ uv run pytest --cov=. --cov-report=html
 
 ## Next Steps
 
-1. **Add Authentication**: Implement API keys, JWT, or OAuth
-2. **Add Database**: Connect to RDS, DynamoDB, or other databases
-3. **Add Caching**: Implement Redis or ElastiCache
-4. **Add Monitoring**: CloudWatch, X-Ray, or third-party APM
-5. **Add Rate Limiting**: Protect your API from abuse
+1. **Enable API Key Authentication**: Secure your API with API keys (see [API Key Authentication](#api-key-authentication) section above)
+2. **Add Advanced Authentication**: Implement JWT, OAuth, or AWS Cognito for user-based authentication
+3. **Add Database**: Connect to RDS, DynamoDB, or other databases
+4. **Add Caching**: Implement Redis or ElastiCache
+5. **Enhance Monitoring**: Configure CloudWatch dashboards, X-Ray, or third-party APM
 6. **Custom Domain**: Use Route53 and ACM for custom domains
-7. **CORS Configuration**: Configure for your frontend domain
+7. **CORS Configuration**: Configure for your specific frontend domain (already available)
 
 ---
 

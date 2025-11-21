@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${SERVICE_NAME}-config
+  namespace: ${NAMESPACE}
+  labels:
+    app: api
+    environment: ${ENVIRONMENT}
+data:
+  # Application configuration
+  APP_NAME: "AWS Base Python API"
+  APP_VERSION: "0.1.0"
+  LOG_FORMAT: "json"
+
+  # Environment-specific settings (override via env vars if needed)
+  # These can be referenced in the deployment as:
+  #   envFrom:
+  #   - configMapRef:
+  #       name: ${SERVICE_NAME}-config

@@ -1,0 +1,134 @@
+name: Deploy Lambda
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - production
+          - test
+      services:
+        description: 'Services to deploy (comma-separated, "all", or leave empty for change detection)'
+        required: false
+        default: ''
+        type: string
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+
+env:
+  PROJECT_NAME: ${{ vars.PROJECT_NAME }}
+  AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  ENVIRONMENT: ${{ inputs.environment || 'dev' }}
+  # Array of services to deploy (only these services will be deployed as Lambda if changed)
+  LAMBDAS: ${{ vars.LAMBDAS || '["api"]' }}
+
+jobs:
+  # Detect which services changed
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      services: ${{ steps.filter-services.outputs.services }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Need full history to detect changes
+
+      - name: Detect changed services
+        id: filter-services
+        run: |
+          echo "LAMBDAS configuration: $LAMBDAS"
+
+          # Parse LAMBDAS array - fix for jq parsing
+          LAMBDAS_ARRAY=$(printf '%s' "$LAMBDAS" | jq -c '.')
+          echo "Services to check: $LAMBDAS_ARRAY"
+
+          # Check if this is a manual trigger with service selection
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ] && [ -n "${{ inputs.services }}" ]; then
+            echo "Manual deployment triggered"
+
+            if [ "${{ inputs.services }}" == "all" ]; then
+              echo "Deploying ALL services"
+              CHANGED_SERVICES="$LAMBDAS_ARRAY"
+            else
+              echo "Deploying selected services: ${{ inputs.services }}"
+              # Convert comma-separated string to JSON array
+              CHANGED_SERVICES=$(echo "${{ inputs.services }}" | jq -Rc 'split(",") | map(gsub("^\\s+|\\s+$";""))')
+            fi
+          else
+            # Auto-detect changed files
+            echo "Auto-detecting changed services"
+
+            if [ "${{ github.event_name }}" == "push" ]; then
+              CHANGED_FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} || echo "")
+            else
+              # For workflow_dispatch without service selection, check against main branch
+              CHANGED_FILES=$(git diff --name-only origin/main HEAD || echo "")
+            fi
+
+            echo "Changed files:"
+            echo "$CHANGED_FILES"
+
+            # Find which services from LAMBDAS have changes
+            CHANGED_SERVICES="[]"
+
+            for service in $(echo "$LAMBDAS_ARRAY" | jq -r '.[]'); do
+              echo "Checking service: $service"
+
+              # Check if this service has changes in:
+              # - backend/$service/**
+              if echo "$CHANGED_FILES" | grep -qE "(^backend/$service/)"; then
+                echo "  ✓ Service $service has changes"
+                CHANGED_SERVICES=$(echo "$CHANGED_SERVICES" | jq -c ". + [\"$service\"]")
+              else
+                echo "  ✗ Service $service has no changes"
+              fi
+            done
+          fi
+
+          echo "Services to deploy: $CHANGED_SERVICES"
+          echo "services=$CHANGED_SERVICES" >> $GITHUB_OUTPUT
+
+  deploy:
+    needs: detect-changes
+    if: ${{ needs.detect-changes.outputs.services != '[]' }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment || 'dev' }}
+    permissions:
+      id-token: write
+      contents: read
+    strategy:
+      matrix:
+        service: ${{ fromJSON(needs.detect-changes.outputs.services) }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/${{ env.PROJECT_NAME }}-github-actions-${{ env.ENVIRONMENT }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Build and push Lambda Docker image
+        run: |
+          # Use centralized docker-push.sh script for consistent builds
+          ./scripts/docker-push.sh ${{ env.ENVIRONMENT }} ${{ matrix.service }} Dockerfile.lambda
+
+      - name: Update Lambda function
+        run: |
+          # Use the service-environment-latest tag for Lambda deployments
+          ECR_REGISTRY="${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com"
+          IMAGE_URI="${ECR_REGISTRY}/${{ env.PROJECT_NAME }}:${{ matrix.service }}-${{ env.ENVIRONMENT }}-latest"
+
+          aws lambda update-function-code \
+            --function-name ${{ env.PROJECT_NAME }}-${{ env.ENVIRONMENT }}-${{ matrix.service }} \
+            --image-uri "${IMAGE_URI}"

@@ -1,0 +1,77 @@
+name: Release Please
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run release-please
+        uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          # Use a PAT token to allow creating PRs
+          # See docs/RELEASE-PLEASE.md for setup instructions
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
+
+          # Release type - can be: python, node, terraform, simple, etc.
+          release-type: python
+
+          # Package name (used in changelog and releases)
+          package-name: aws-base-python
+
+          # Changelog sections customization
+          changelog-types: |
+            [
+              {"type":"feat","section":"Features","hidden":false},
+              {"type":"fix","section":"Bug Fixes","hidden":false},
+              {"type":"perf","section":"Performance Improvements","hidden":false},
+              {"type":"revert","section":"Reverts","hidden":false},
+              {"type":"docs","section":"Documentation","hidden":false},
+              {"type":"style","section":"Styles","hidden":true},
+              {"type":"chore","section":"Miscellaneous","hidden":true},
+              {"type":"refactor","section":"Code Refactoring","hidden":false},
+              {"type":"test","section":"Tests","hidden":true},
+              {"type":"build","section":"Build System","hidden":true},
+              {"type":"ci","section":"CI/CD","hidden":true}
+            ]
+
+      # The following steps will only run if a release was created
+      - name: Checkout code
+        if: ${{ steps.release.outputs.release_created }}
+        uses: actions/checkout@v4
+
+      - name: Tag major and minor versions
+        if: ${{ steps.release.outputs.release_created }}
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+
+          # Extract major and minor versions
+          VERSION=${{ steps.release.outputs.tag_name }}
+          MAJOR=$(echo $VERSION | cut -d. -f1)
+          MINOR=$(echo $VERSION | cut -d. -f1-2)
+
+          # Create/update major version tag (e.g., v1)
+          git tag -fa $MAJOR -m "Release $MAJOR"
+          git push origin $MAJOR --force
+
+          # Create/update minor version tag (e.g., v1.2)
+          git tag -fa $MINOR -m "Release $MINOR"
+          git push origin $MINOR --force
+
+          echo "Created/updated tags: $MAJOR, $MINOR"
+
+      # Optional: Notify on release
+      - name: Release notification
+        if: ${{ steps.release.outputs.release_created }}
+        run: |
+          echo "::notice::🎉 Release ${{ steps.release.outputs.tag_name }} created!"
+          echo "::notice::📝 Release notes: ${{ steps.release.outputs.html_url }}"

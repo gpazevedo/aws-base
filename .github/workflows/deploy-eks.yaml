@@ -1,0 +1,371 @@
+name: Deploy EKS
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - production
+          - test
+      services:
+        description: 'Services to deploy (comma-separated, "all", or leave empty for change detection)'
+        required: false
+        default: ''
+        type: string
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - 'k8s/**'
+
+env:
+  PROJECT_NAME: ${{ vars.PROJECT_NAME }}
+  AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  ENVIRONMENT: ${{ inputs.environment || 'dev' }}
+  # Array of services to deploy (only these services will be deployed to EKS if changed)
+  EKS_SERVICES: ${{ vars.EKS_SERVICES || '["api"]' }}
+  EKS_CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME || format('{0}-{1}', vars.PROJECT_NAME, inputs.environment || 'dev') }}
+
+jobs:
+  # Detect which services changed
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      services: ${{ steps.filter-services.outputs.services }}
+      k8s_changed: ${{ steps.filter-services.outputs.k8s_changed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Need full history to detect changes
+
+      - name: Detect changed services
+        id: filter-services
+        run: |
+          echo "EKS_SERVICES configuration: $EKS_SERVICES"
+
+          # Parse EKS_SERVICES array
+          SERVICES_ARRAY=$(printf '%s' "$EKS_SERVICES" | jq -c '.')
+          echo "Services to check: $SERVICES_ARRAY"
+
+          # Check if this is a manual trigger with service selection
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ] && [ -n "${{ inputs.services }}" ]; then
+            echo "Manual deployment triggered"
+
+            if [ "${{ inputs.services }}" == "all" ]; then
+              echo "Deploying ALL services"
+              CHANGED_SERVICES="$SERVICES_ARRAY"
+            else
+              echo "Deploying selected services: ${{ inputs.services }}"
+              # Convert comma-separated string to JSON array
+              CHANGED_SERVICES=$(echo "${{ inputs.services }}" | jq -Rc 'split(",") | map(gsub("^\\s+|\\s+$";""))')
+            fi
+            K8S_CHANGED="true"
+          else
+            # Auto-detect changed files
+            echo "Auto-detecting changed services"
+
+            if [ "${{ github.event_name }}" == "push" ]; then
+              CHANGED_FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} || echo "")
+            else
+              # For workflow_dispatch without service selection, check against main branch
+              CHANGED_FILES=$(git diff --name-only origin/main HEAD || echo "")
+            fi
+
+            echo "Changed files:"
+            echo "$CHANGED_FILES"
+
+            # Check if k8s manifests changed
+            K8S_CHANGED="false"
+            if echo "$CHANGED_FILES" | grep -qE "^k8s/"; then
+              echo "Kubernetes manifests changed"
+              K8S_CHANGED="true"
+            fi
+
+            # Find which services from EKS_SERVICES have changes
+            CHANGED_SERVICES="[]"
+
+            for service in $(echo "$SERVICES_ARRAY" | jq -r '.[]'); do
+              echo "Checking service: $service"
+
+              # Check if this service has changes in:
+              # - backend/$service/**
+              # - k8s/**/$service.yaml (or similar)
+              if echo "$CHANGED_FILES" | grep -qE "(^backend/$service/|^k8s/.*$service)"; then
+                echo "  ✓ Service $service has changes"
+                CHANGED_SERVICES=$(echo "$CHANGED_SERVICES" | jq -c ". + [\"$service\"]")
+              else
+                echo "  ✗ Service $service has no changes"
+              fi
+            done
+          fi
+
+          echo "Services to deploy: $CHANGED_SERVICES"
+          echo "K8s manifests changed: $K8S_CHANGED"
+          echo "services=$CHANGED_SERVICES" >> $GITHUB_OUTPUT
+          echo "k8s_changed=$K8S_CHANGED" >> $GITHUB_OUTPUT
+
+  build-and-push:
+    needs: detect-changes
+    if: ${{ needs.detect-changes.outputs.services != '[]' }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment || 'dev' }}
+    permissions:
+      id-token: write
+      contents: read
+    strategy:
+      matrix:
+        service: ${{ fromJSON(needs.detect-changes.outputs.services) }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/${{ env.PROJECT_NAME }}-github-actions-${{ env.ENVIRONMENT }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Build and push EKS Docker image
+        run: |
+          # Use centralized docker-push.sh script for consistent builds
+          ./scripts/docker-push.sh ${{ env.ENVIRONMENT }} ${{ matrix.service }} Dockerfile.eks
+
+      - name: Save image details
+        run: |
+          ECR_REGISTRY="${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com"
+          IMAGE_URI="${ECR_REGISTRY}/${{ env.PROJECT_NAME }}:${{ matrix.service }}-${{ env.ENVIRONMENT }}-latest"
+          echo "IMAGE_${{ matrix.service }}=${IMAGE_URI}" >> $GITHUB_ENV
+          echo "Built and pushed: ${IMAGE_URI}"
+
+  deploy-to-eks:
+    needs: [detect-changes, build-and-push]
+    if: ${{ needs.detect-changes.outputs.services != '[]' }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment || 'dev' }}
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/${{ env.PROJECT_NAME }}-github-actions-${{ env.ENVIRONMENT }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'v1.28.0'
+
+      - name: Install Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: 'v3.13.0'
+
+      - name: Configure kubectl for EKS
+        run: |
+          aws eks update-kubeconfig \
+            --region ${{ env.AWS_REGION }} \
+            --name ${{ env.EKS_CLUSTER_NAME }}
+
+          # Verify connection
+          kubectl cluster-info
+          kubectl get nodes
+
+      - name: Create namespace if not exists
+        run: |
+          NAMESPACE="${{ env.ENVIRONMENT }}"
+          kubectl get namespace ${NAMESPACE} || kubectl create namespace ${NAMESPACE}
+
+      - name: Deploy services to EKS
+        run: |
+          NAMESPACE="${{ env.ENVIRONMENT }}"
+          ECR_REGISTRY="${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com"
+          SERVICES='${{ needs.detect-changes.outputs.services }}'
+
+          echo "Deploying services: $SERVICES"
+
+          for service in $(echo "$SERVICES" | jq -r '.[]'); do
+            echo "Deploying service: $service"
+
+            IMAGE_URI="${ECR_REGISTRY}/${{ env.PROJECT_NAME }}:${service}-${{ env.ENVIRONMENT }}-latest"
+            echo "Image URI: ${IMAGE_URI}"
+
+            # Check if k8s manifests exist for this service
+            if [ -f "k8s/${service}/deployment.yaml" ]; then
+              echo "Using k8s manifests from k8s/${service}/"
+
+              # Apply manifests with environment substitution
+              export IMAGE_URI
+              export NAMESPACE
+              export SERVICE_NAME="${{ env.PROJECT_NAME }}-${service}"
+              export ENVIRONMENT="${{ env.ENVIRONMENT }}"
+
+              # Process and apply each manifest
+              for manifest in k8s/${service}/*.yaml; do
+                echo "Applying manifest: $manifest"
+                envsubst < "$manifest" | kubectl apply -f - -n ${NAMESPACE}
+              done
+
+            elif [ -f "k8s/deployment.yaml" ]; then
+              echo "Using shared k8s manifest from k8s/deployment.yaml"
+
+              # Apply shared manifest with service-specific values
+              export IMAGE_URI
+              export NAMESPACE
+              export SERVICE_NAME="${{ env.PROJECT_NAME }}-${service}"
+              export ENVIRONMENT="${{ env.ENVIRONMENT }}"
+
+              envsubst < k8s/deployment.yaml | kubectl apply -f - -n ${NAMESPACE}
+
+            else
+              echo "No k8s manifests found, creating basic deployment"
+
+              # Create basic deployment
+              cat <<EOF | kubectl apply -f - -n ${NAMESPACE}
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: ${{ env.PROJECT_NAME }}-${service}
+            namespace: ${NAMESPACE}
+            labels:
+              app: ${service}
+              environment: ${{ env.ENVIRONMENT }}
+          spec:
+            replicas: 2
+            selector:
+              matchLabels:
+                app: ${service}
+            template:
+              metadata:
+                labels:
+                  app: ${service}
+                  environment: ${{ env.ENVIRONMENT }}
+              spec:
+                containers:
+                - name: ${service}
+                  image: ${IMAGE_URI}
+                  ports:
+                  - containerPort: 8000
+                  env:
+                  - name: ENVIRONMENT
+                    value: "${{ env.ENVIRONMENT }}"
+                  resources:
+                    requests:
+                      memory: "256Mi"
+                      cpu: "250m"
+                    limits:
+                      memory: "512Mi"
+                      cpu: "500m"
+                  livenessProbe:
+                    httpGet:
+                      path: /liveness
+                      port: 8000
+                    initialDelaySeconds: 30
+                    periodSeconds: 10
+                  readinessProbe:
+                    httpGet:
+                      path: /readiness
+                      port: 8000
+                    initialDelaySeconds: 10
+                    periodSeconds: 5
+          ---
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: ${{ env.PROJECT_NAME }}-${service}
+            namespace: ${NAMESPACE}
+            labels:
+              app: ${service}
+          spec:
+            type: LoadBalancer
+            ports:
+            - port: 80
+              targetPort: 8000
+              protocol: TCP
+            selector:
+              app: ${service}
+          EOF
+            fi
+
+            echo "Service ${service} deployed successfully"
+          done
+
+      - name: Wait for deployments to be ready
+        run: |
+          NAMESPACE="${{ env.ENVIRONMENT }}"
+          SERVICES='${{ needs.detect-changes.outputs.services }}'
+
+          for service in $(echo "$SERVICES" | jq -r '.[]'); do
+            echo "Waiting for deployment ${{ env.PROJECT_NAME }}-${service} to be ready..."
+
+            kubectl rollout status deployment/${{ env.PROJECT_NAME }}-${service} \
+              -n ${NAMESPACE} \
+              --timeout=5m
+
+            echo "✅ Deployment ${service} is ready"
+          done
+
+      - name: Get service endpoints
+        run: |
+          NAMESPACE="${{ env.ENVIRONMENT }}"
+          SERVICES='${{ needs.detect-changes.outputs.services }}'
+
+          echo "Service endpoints:"
+          echo "=================="
+
+          for service in $(echo "$SERVICES" | jq -r '.[]'); do
+            SERVICE_NAME="${{ env.PROJECT_NAME }}-${service}"
+
+            # Get LoadBalancer endpoint if available
+            ENDPOINT=$(kubectl get service ${SERVICE_NAME} \
+              -n ${NAMESPACE} \
+              -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "pending")
+
+            if [ "$ENDPOINT" == "pending" ] || [ -z "$ENDPOINT" ]; then
+              ENDPOINT=$(kubectl get service ${SERVICE_NAME} \
+                -n ${NAMESPACE} \
+                -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "pending")
+            fi
+
+            echo "🌐 ${service}: http://${ENDPOINT}"
+
+            # Test health endpoint
+            if [ "$ENDPOINT" != "pending" ] && [ -n "$ENDPOINT" ]; then
+              echo "Testing health endpoint..."
+              curl -f "http://${ENDPOINT}/health" || echo "Health check failed (service may still be starting)"
+            fi
+          done
+
+      - name: Deployment summary
+        run: |
+          NAMESPACE="${{ env.ENVIRONMENT }}"
+
+          echo "Deployment Summary"
+          echo "=================="
+          echo "Cluster: ${{ env.EKS_CLUSTER_NAME }}"
+          echo "Namespace: ${NAMESPACE}"
+          echo "Environment: ${{ env.ENVIRONMENT }}"
+          echo ""
+
+          echo "Deployments:"
+          kubectl get deployments -n ${NAMESPACE} -l environment=${{ env.ENVIRONMENT }}
+          echo ""
+
+          echo "Pods:"
+          kubectl get pods -n ${NAMESPACE} -l environment=${{ env.ENVIRONMENT }}
+          echo ""
+
+          echo "Services:"
+          kubectl get services -n ${NAMESPACE} -l environment=${{ env.ENVIRONMENT }}

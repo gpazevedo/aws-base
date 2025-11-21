@@ -18,6 +18,7 @@ resource "aws_api_gateway_method" "proxy" {
   resource_id   = aws_api_gateway_resource.proxy.id
   http_method   = var.http_method
   authorization = var.authorization_type
+  api_key_required = var.api_key_required
 
   request_parameters = var.request_parameters
 }
@@ -52,6 +53,7 @@ resource "aws_api_gateway_method" "root" {
   resource_id   = var.api_root_resource_id
   http_method   = "ANY"
   authorization = var.authorization_type
+  api_key_required = var.api_key_required
 }
 
 # Root path integration

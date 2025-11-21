@@ -36,6 +36,12 @@ module "api_gateway_shared" {
   # Caching
   enable_caching = var.enable_api_caching
 
+  # API Key Authentication
+  enable_api_key          = var.enable_api_key
+  api_key_name            = var.api_key_name
+  usage_plan_quota_limit  = var.api_usage_plan_quota_limit
+  usage_plan_quota_period = var.api_usage_plan_quota_period
+
   tags = var.additional_tags
 }
 
@@ -60,4 +66,5 @@ module "api_gateway_lambda" {
 
   # Configuration
   enable_root_method    = true
+  api_key_required      = var.enable_api_key
 }

@@ -76,3 +76,9 @@ variable "enable_root_method" {
   type        = bool
   default     = true
 }
+
+variable "api_key_required" {
+  description = "Require API Key for requests"
+  type        = bool
+  default     = false
+}

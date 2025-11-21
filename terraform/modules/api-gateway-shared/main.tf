@@ -118,3 +118,71 @@ resource "aws_api_gateway_method_settings" "all" {
     caching_enabled = var.enable_caching
   }
 }
+
+# =============================================================================
+# API Key Authentication (Optional)
+# =============================================================================
+
+# API Key
+resource "aws_api_gateway_api_key" "api_key" {
+  count = var.enable_api_key ? 1 : 0
+
+  name        = var.api_key_name != "" ? var.api_key_name : "${var.project_name}-${var.environment}-api-key"
+  description = "API Key for ${var.project_name} ${var.environment} API"
+  enabled     = true
+
+  tags = merge(
+    {
+      Name        = var.api_key_name != "" ? var.api_key_name : "${var.project_name}-${var.environment}-api-key"
+      Project     = var.project_name
+      Environment = var.environment
+    },
+    var.tags
+  )
+}
+
+# Usage Plan
+resource "aws_api_gateway_usage_plan" "usage_plan" {
+  count = var.enable_api_key ? 1 : 0
+
+  name        = "${var.project_name}-${var.environment}-usage-plan"
+  description = "Usage plan for ${var.project_name} ${var.environment} API"
+
+  api_stages {
+    api_id = aws_api_gateway_rest_api.api.id
+    stage  = aws_api_gateway_stage.api.stage_name
+  }
+
+  # Quota (optional)
+  dynamic "quota_settings" {
+    for_each = var.usage_plan_quota_limit > 0 ? [1] : []
+    content {
+      limit  = var.usage_plan_quota_limit
+      period = var.usage_plan_quota_period
+    }
+  }
+
+  # Throttle settings (use same as API Gateway)
+  throttle_settings {
+    burst_limit = var.throttle_burst_limit
+    rate_limit  = var.throttle_rate_limit
+  }
+
+  tags = merge(
+    {
+      Name        = "${var.project_name}-${var.environment}-usage-plan"
+      Project     = var.project_name
+      Environment = var.environment
+    },
+    var.tags
+  )
+}
+
+# Associate API Key with Usage Plan
+resource "aws_api_gateway_usage_plan_key" "usage_plan_key" {
+  count = var.enable_api_key ? 1 : 0
+
+  key_id        = aws_api_gateway_api_key.api_key[0].id
+  key_type      = "API_KEY"
+  usage_plan_id = aws_api_gateway_usage_plan.usage_plan[0].id
+}

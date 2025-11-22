@@ -1388,6 +1388,13 @@ This repository includes comprehensive documentation for all aspects of the boot
   - Local development and testing instructions
   - Interactive documentation (Swagger UI, ReDoc)
 
+- **[🔧 API Gateway Troubleshooting](docs/TROUBLESHOOTING-API-GATEWAY.md)** - Fix integration issues
+  - Modular API Gateway architecture explained
+  - Common issues and solutions
+  - Migration guide from simplified to modular setup
+  - Testing and debugging tips
+  - API Key authentication troubleshooting
+
 - **[✅ Pre-commit Hooks](docs/PRE-COMMIT.md)** - Automated code quality
   - Ruff (linting + formatting) setup
   - Pyright (type checking) configuration
@@ -1415,6 +1422,7 @@ This repository includes comprehensive documentation for all aspects of the boot
 |----------|---------|--------------|
 | [README.md](README.md) | Overview and quick start | **Start here** |
 | [API-ENDPOINTS.md](docs/API-ENDPOINTS.md) | API documentation | After deployment, for API usage |
+| [TROUBLESHOOTING-API-GATEWAY.md](docs/TROUBLESHOOTING-API-GATEWAY.md) | Fix API Gateway issues | When endpoints don't work or migrating setup |
 | [TERRAFORM-BOOTSTRAP.md](docs/TERRAFORM-BOOTSTRAP.md) | Infrastructure deep dive | Before deploying bootstrap |
 | [INCREMENTAL-ADOPTION.md](docs/INCREMENTAL-ADOPTION.md) | Scaling strategy | Planning architecture evolution |
 | [PRE-COMMIT.md](docs/PRE-COMMIT.md) | Code quality setup | Setting up development environment |

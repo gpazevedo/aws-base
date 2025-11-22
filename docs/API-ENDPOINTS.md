@@ -7,12 +7,42 @@ This document describes all available endpoints in the FastAPI Lambda applicatio
 ## 📚 Table of Contents
 
 - [Available Endpoints](#available-endpoints)
+- [API Gateway Architecture](#api-gateway-architecture)
 - [Health Check Endpoints](#health-check-endpoints)
 - [Application Endpoints](#application-endpoints)
 - [Auto-Generated Documentation](#auto-generated-documentation)
 - [Accessing via API Gateway](#accessing-via-api-gateway)
 - [Local Development](#local-development)
 - [Testing Endpoints](#testing-endpoints)
+
+---
+
+## API Gateway Architecture
+
+This template uses a **modular API Gateway architecture** for better organization and reusability.
+
+### Modular Setup (Recommended)
+
+The API Gateway configuration is split into reusable modules:
+
+```
+terraform/
+├── api-gateway.tf              # Orchestrates modules
+├── modules/
+│   ├── api-gateway-shared/    # REST API, stage, deployment, API Keys
+│   └── api-gateway-lambda/    # AWS_PROXY Lambda integration
+```
+
+**Benefits:**
+- ✅ Separation of concerns (shared resources vs. service-specific)
+- ✅ Reusable across multiple services
+- ✅ Built-in API Key authentication support
+- ✅ Standardized CORS and logging configuration
+- ✅ Easier to maintain and debug
+
+**Integration Type:** `AWS_PROXY` - API Gateway forwards requests directly to Lambda with automatic request/response transformation.
+
+For troubleshooting API Gateway issues, see **[API Gateway Troubleshooting Guide](TROUBLESHOOTING-API-GATEWAY.md)**.
 
 ---
 

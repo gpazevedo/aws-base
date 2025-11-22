@@ -239,6 +239,39 @@ variable "cors_allow_headers" {
   default     = ["Content-Type", "Authorization", "X-Requested-With"]
 }
 
+# =============================================================================
+# API Key Authentication
+# =============================================================================
+
+variable "enable_api_key" {
+  description = "Enable API Key authentication for API Gateway"
+  type        = bool
+  default     = false
+}
+
+variable "api_key_name" {
+  description = "Name for the API Key (if enabled)"
+  type        = string
+  default     = ""
+}
+
+variable "api_usage_plan_quota_limit" {
+  description = "Maximum number of requests per period (0 = unlimited)"
+  type        = number
+  default     = 0
+}
+
+variable "api_usage_plan_quota_period" {
+  description = "Time period for quota (DAY, WEEK, MONTH)"
+  type        = string
+  default     = "MONTH"
+
+  validation {
+    condition     = contains(["DAY", "WEEK", "MONTH"], var.api_usage_plan_quota_period)
+    error_message = "Quota period must be DAY, WEEK, or MONTH"
+  }
+}
+
 variable "additional_tags" {
   description = "Additional tags to apply to resources"
   type        = map(string)

@@ -141,7 +141,109 @@ make app-apply-dev
 
 ---
 
-### 4. `docker-push.sh`
+### 4. `setup-terraform-apprunner.sh`
+
+**Purpose**: Generates example Terraform configuration files for App Runner-based application infrastructure.
+
+**Location**: `scripts/setup-terraform-apprunner.sh`
+
+**Usage**:
+```bash
+./scripts/setup-terraform-apprunner.sh
+# or
+make setup-terraform-apprunner
+```
+
+**What it does**:
+1. Reads project configuration from `bootstrap/terraform.tfvars` (if available)
+2. Creates `terraform/` directory structure
+3. Generates complete Terraform configuration for App Runner deployment:
+   - `terraform/main.tf` - Provider and backend configuration
+   - `terraform/variables.tf` - Variable definitions (CPU, memory, auto-scaling)
+   - `terraform/apprunner.tf` - App Runner service with container image
+   - `terraform/api-gateway.tf` - Optional API Gateway with HTTP_PROXY integration
+   - `terraform/outputs.tf` - Output values
+   - `terraform/README.md` - Documentation with App Runner vs Lambda comparison
+4. Creates environment-specific variable files:
+   - `terraform/environments/dev.tfvars`
+   - `terraform/environments/test.tfvars`
+   - `terraform/environments/prod.tfvars`
+
+**Generated infrastructure features**:
+- App Runner service using container images from ECR
+- Auto-scaling configuration (min/max instances, concurrency)
+- Health check configuration
+- CloudWatch Logs integration via IAM instance role
+- Environment-specific CPU/memory configurations
+- Lifecycle rules for CI/CD compatibility
+- Optional API Gateway integration with HTTP_PROXY
+
+**When to run**:
+- After completing bootstrap setup with `enable_apprunner = true`
+- When starting a new containerized web application project
+- For long-running web services with WebSocket support
+- When you need minimal cold starts compared to Lambda
+
+**App Runner vs Lambda**:
+Use **App Runner** when:
+- ✅ Building long-running web applications
+- ✅ Need WebSocket or streaming support
+- ✅ Want consistent performance (minimal cold starts)
+- ✅ Prefer instance-based pricing over per-request pricing
+- ✅ Need full control over web server configuration
+
+Use **Lambda** (via `setup-terraform-lambda.sh`) when:
+- ✅ Event-driven workloads
+- ✅ Sporadic traffic patterns
+- ✅ Simple request/response APIs
+- ✅ Need massive auto-scaling
+
+**Customization**:
+After generation, you can:
+- Edit environment variable files (`terraform/environments/*.tfvars`)
+- Adjust CPU/memory sizing in `terraform/apprunner.tf`
+- Configure auto-scaling parameters (min/max instances, concurrency)
+- Customize health check settings
+- Enable API Gateway by setting `enable_api_gateway_standard = true`
+- Add additional resources (RDS, ElastiCache, etc.)
+
+**Example workflow**:
+```bash
+# 1. Generate App Runner Terraform files
+make setup-terraform-apprunner
+
+# 2. Customize the generated files
+vim terraform/environments/dev.tfvars
+
+# 3. Build and push Docker image
+make docker-build DOCKERFILE=Dockerfile.apprunner
+make docker-push-dev
+
+# 4. Deploy application
+make app-init-dev
+make app-plan-dev
+make app-apply-dev
+```
+
+**Key configuration variables**:
+```hcl
+# CPU/Memory sizing (see AWS App Runner documentation for valid combinations)
+apprunner_cpu    = "1024"  # 256, 512, 1024, 2048, 4096
+apprunner_memory = "2048"  # 512-12288 MB
+
+# Auto-scaling
+apprunner_min_instances  = 1
+apprunner_max_instances  = 10
+apprunner_max_concurrency = 100  # Concurrent requests per instance
+
+# Health checks
+health_check_path = "/health"
+health_check_interval = 10
+```
+
+---
+
+### 5. `docker-push.sh`
 
 **Purpose**: Build and push Docker images to Amazon ECR with proper tagging.
 

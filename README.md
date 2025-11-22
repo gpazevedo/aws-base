@@ -593,7 +593,7 @@ All Dockerfiles support building for both arm64 and amd64 architectures:
 - `Dockerfile.apprunner` & `Dockerfile.eks`: Use `python:3.13-slim` (multi-arch manifest)
 - Docker BuildKit automatically sets `TARGETPLATFORM` based on `--platform` flag
 - **Both build AND runtime stages use TARGET platform** (deployment CPU)
-- Production deployments (`make docker-push-*`) always build and push arm64 images
+- **Production deployments (`make docker-push-*`) ALWAYS build and push arm64 images**
 - Images are tagged with architecture: `myapp:arm64-latest`, `myapp:amd64-latest`
 
 **Why TARGETPLATFORM for both stages?**
@@ -601,7 +601,10 @@ All Dockerfiles support building for both arm64 and amd64 architectures:
 - Unlike Go/Rust where builder can cross-compile, Python extensions need native compilation for target CPU
 - See [Docker Multi-Architecture guide](docs/DOCKER-MULTIARCH.md) for detailed explanation
 
-**Important:** The `--platform` flag is required to select the target architecture. Without it, Docker builds for your host's architecture.
+**⚠️ ARM64 Guarantee for ECR:**
+**All images pushed to Amazon ECR are guaranteed to use arm64 architecture.** This is hardcoded in `docker-push.sh` and cannot be overridden. Local testing with other architectures is possible but these images are never pushed to ECR.
+
+📖 **See [ARM64 Architecture Guarantee](docs/DOCKER-ARM64-GUARANTEE.md) for complete details on how this is enforced.**
 
 ### Deploy to AWS
 
@@ -1567,6 +1570,13 @@ This repository includes comprehensive documentation for all aspects of the boot
   - Testing and debugging tips
   - API Key authentication troubleshooting
 
+- **[🐳 ARM64 Architecture Guarantee](docs/DOCKER-ARM64-GUARANTEE.md)** - ECR image architecture enforcement
+  - Why all ECR images must be arm64
+  - How arm64 is enforced at multiple levels
+  - Local testing with other architectures
+  - Cost savings from Graviton2 processors
+  - Migration guide from x86_64
+
 - **[✅ Pre-commit Hooks](docs/PRE-COMMIT.md)** - Automated code quality
   - Ruff (linting + formatting) setup
   - Pyright (type checking) configuration
@@ -1595,6 +1605,7 @@ This repository includes comprehensive documentation for all aspects of the boot
 | [README.md](README.md) | Overview and quick start | **Start here** |
 | [API-ENDPOINTS.md](docs/API-ENDPOINTS.md) | API documentation | After deployment, for API usage |
 | [TROUBLESHOOTING-API-GATEWAY.md](docs/TROUBLESHOOTING-API-GATEWAY.md) | Fix API Gateway issues | When endpoints don't work or migrating setup |
+| [DOCKER-ARM64-GUARANTEE.md](docs/DOCKER-ARM64-GUARANTEE.md) | ARM64 architecture enforcement | Understanding ECR image architecture |
 | [TERRAFORM-BOOTSTRAP.md](docs/TERRAFORM-BOOTSTRAP.md) | Infrastructure deep dive | Before deploying bootstrap |
 | [INCREMENTAL-ADOPTION.md](docs/INCREMENTAL-ADOPTION.md) | Scaling strategy | Planning architecture evolution |
 | [PRE-COMMIT.md](docs/PRE-COMMIT.md) | Code quality setup | Setting up development environment |

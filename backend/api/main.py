@@ -4,10 +4,37 @@ import time
 from datetime import datetime, timezone
 from typing import Any
 
+import httpx
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import JSONResponse
 from mangum import Mangum
 from pydantic import BaseModel
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+# =============================================================================
+# Configuration
+# =============================================================================
+
+
+class Settings(BaseSettings):
+    """Application settings loaded from environment variables."""
+
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
+    # AppRunner service URL (optional - for service-to-service communication)
+    apprunner_service_url: str = "http://localhost:8080"
+
+    # Service configuration
+    service_name: str = "api"
+    service_version: str = "0.1.0"
+
+    # HTTP client settings
+    http_timeout: float = 30.0
+
+
+settings = Settings()
+
 
 # =============================================================================
 # Application Configuration
@@ -56,6 +83,14 @@ class StatusResponse(BaseModel):
     """Simple status response."""
 
     status: str
+
+
+class AppRunnerHealthResponse(BaseModel):
+    """Response from calling AppRunner service health endpoint."""
+
+    apprunner_response: dict[str, Any]
+    status_code: int
+    response_time_ms: float
 
 
 # =============================================================================
@@ -181,6 +216,51 @@ async def trigger_error() -> None:
 
 
 # =============================================================================
+# AppRunner Service Integration Endpoints
+# =============================================================================
+
+
+@app.get("/apprunner-health", response_model=AppRunnerHealthResponse, tags=["Service Integration"])
+async def get_apprunner_health() -> AppRunnerHealthResponse:
+    """
+    Call the AppRunner service health endpoint and return the response.
+
+    This endpoint demonstrates service-to-service communication by calling
+    the AppRunner service's /health endpoint and returning what it received.
+
+    Returns:
+        AppRunnerHealthResponse: The response from the AppRunner service including
+                                status code, response time, and the full response body
+
+    Raises:
+        HTTPException: If the AppRunner service is unreachable or returns an error
+    """
+    start_time = time.time()
+
+    try:
+        async with httpx.AsyncClient(timeout=settings.http_timeout) as client:
+            response = await client.get(f"{settings.apprunner_service_url}/health")
+            response_time = (time.time() - start_time) * 1000  # Convert to ms
+
+            # Return the response regardless of status code
+            return AppRunnerHealthResponse(
+                apprunner_response=response.json(),
+                status_code=response.status_code,
+                response_time_ms=round(response_time, 2),
+            )
+    except httpx.RequestError as e:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Failed to reach AppRunner service: {str(e)}",
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Unexpected error calling AppRunner service: {str(e)}",
+        )
+
+
+# =============================================================================
 # Exception Handlers
 # =============================================================================
 
@@ -199,6 +279,7 @@ async def not_found_handler(request: Any, exc: Any) -> JSONResponse:
                 "/liveness",
                 "/readiness",
                 "/greet",
+                "/apprunner-health",
                 "/docs",
                 "/redoc",
                 "/openapi.json",

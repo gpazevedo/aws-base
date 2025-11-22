@@ -663,6 +663,126 @@ docker-compose --env-file .env up
 
 ---
 
+### 7. `test-api.sh`
+
+**Purpose**: Comprehensive automated testing of all API endpoints after deployment.
+
+**Location**: `scripts/test-api.sh`
+
+**Usage**:
+```bash
+# Run using make
+make test-api
+
+# Or run directly
+./scripts/test-api.sh
+```
+
+**What it does**:
+1. Validates prerequisites (jq, curl, terraform directory)
+2. Reads Terraform outputs to get API endpoint URL
+3. Detects API Key authentication if enabled
+4. Tests all endpoints with proper HTTP status code validation:
+   - **Health checks**: `/health`, `/liveness`, `/readiness`
+   - **Application endpoints**: `/`, `/greet` (GET/POST)
+   - **Error handling**: `/error`, validation errors
+5. Provides color-coded pass/fail results
+6. Exits with error code if any test fails (CI/CD friendly)
+
+**Example Output**:
+```
+🔍 Validating prerequisites...
+✅ Prerequisites validated
+
+📖 Reading Terraform outputs...
+✅ Configuration loaded
+   API URL: https://abc123.execute-api.us-east-1.amazonaws.com/
+   Deployment Mode: api_gateway_standard
+   API Key: Enabled (will be used in requests)
+
+════════════════════════════════════════════════════════════
+                    API ENDPOINT TESTS
+════════════════════════════════════════════════════════════
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Health Check Endpoints
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Testing: Health check endpoint... ✓ PASS (HTTP 200)
+{
+  "status": "healthy",
+  "timestamp": "2025-01-20T12:34:56.789012+00:00",
+  "uptime_seconds": 123.45,
+  "version": "0.1.0"
+}
+
+Testing: Liveness probe... ✓ PASS (HTTP 200)
+Testing: Readiness probe... ✓ PASS (HTTP 200)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Application Endpoints
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Testing: Root endpoint... ✓ PASS (HTTP 200)
+Testing: Greet with default name... ✓ PASS (HTTP 200)
+Testing: Greet with query parameter... ✓ PASS (HTTP 200)
+Testing: Greet with POST body... ✓ PASS (HTTP 200)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Error Handling
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Testing: Error endpoint (test error handling)... ✓ PASS (HTTP 500)
+Testing: Validation error (missing required field)... ✓ PASS (HTTP 422)
+
+════════════════════════════════════════════════════════════
+                  ✓ ALL TESTS PASSED!
+════════════════════════════════════════════════════════════
+
+📊 Test Summary:
+   • Health checks: 3/3 passed
+   • Application endpoints: 4/4 passed
+   • Error handling: 2/2 passed
+   • Total: 9/9 tests passed
+
+📖 Next Steps:
+   • View interactive API docs: https://abc123.execute-api.us-east-1.amazonaws.com/docs
+   • View alternative docs: https://abc123.execute-api.us-east-1.amazonaws.com/redoc
+```
+
+**When to run**:
+- After deploying application infrastructure (`make app-apply-dev`)
+- After updating Lambda function code
+- In CI/CD pipelines for automated validation
+- Before promoting to production
+- When troubleshooting API issues
+
+**Features**:
+- ✅ Automatic API Key detection and usage
+- ✅ Color-coded output for easy scanning
+- ✅ JSON response pretty-printing with jq
+- ✅ Proper exit codes (0 = success, 1 = failure)
+- ✅ Validates all endpoint types (health, app, errors)
+- ✅ Works with both API Gateway and Lambda Function URLs
+
+**Prerequisites**:
+- `jq` - JSON processor for pretty-printing responses
+- `curl` - HTTP client for making requests
+- Terraform outputs available (run from project root)
+
+**CI/CD Integration**:
+```yaml
+# .github/workflows/deploy.yml
+- name: Test API endpoints
+  run: make test-api
+```
+
+**Exit Codes**:
+- `0` - All tests passed
+- `1` - One or more tests failed or prerequisites missing
+
+---
+
 ## 🔄 Typical Workflow
 
 ### Initial Setup

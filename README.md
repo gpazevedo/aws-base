@@ -350,87 +350,22 @@ if cd terraform && terraform output api_key_value &>/dev/null; then
 fi
 
 # ----------------------------------------------------------------------------
-# 6. Complete Test Script (Optional)
+# 6. Automated Test Suite
 # ----------------------------------------------------------------------------
 
-# For comprehensive testing, create a test script:
-cat > test-api.sh <<'EOF'
-#!/bin/bash
-set -e
+# Run comprehensive API tests with the test script
+make test-api
 
-# Colors for output
-GREEN='\033[0;32m'
-RED='\033[0;31m'
-YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+# Or run directly
+./scripts/test-api.sh
 
-# Get API URL
-cd terraform
-PRIMARY_URL=$(terraform output -raw primary_endpoint)
-API_KEY=$(terraform output -raw api_key_value 2>/dev/null || echo "")
-cd ..
-
-echo -e "${YELLOW}Testing API at: $PRIMARY_URL${NC}\n"
-
-# Helper function to test endpoint
-test_endpoint() {
-  local method=$1
-  local path=$2
-  local expected_status=$3
-  local data=$4
-  local description=$5
-
-  echo -n "Testing: $description... "
-
-  # Build curl command
-  local cmd="curl -s -w '%{http_code}' -o /tmp/response.json"
-  if [ -n "$API_KEY" ]; then
-    cmd="$cmd -H 'x-api-key: $API_KEY'"
-  fi
-  cmd="$cmd -X $method"
-  if [ -n "$data" ]; then
-    cmd="$cmd -H 'Content-Type: application/json' -d '$data'"
-  fi
-  cmd="$cmd $PRIMARY_URL$path"
-
-  # Execute request
-  status_code=$(eval $cmd)
-
-  # Check status code
-  if [ "$status_code" = "$expected_status" ]; then
-    echo -e "${GREEN}✓ PASS${NC} (HTTP $status_code)"
-    jq -C '.' /tmp/response.json 2>/dev/null || cat /tmp/response.json
-  else
-    echo -e "${RED}✗ FAIL${NC} (Expected $expected_status, got $status_code)"
-    cat /tmp/response.json
-    exit 1
-  fi
-  echo ""
-}
-
-# Run tests
-echo -e "${YELLOW}Health Check Endpoints${NC}"
-test_endpoint "GET" "/health" "200" "" "Health check"
-test_endpoint "GET" "/liveness" "200" "" "Liveness probe"
-test_endpoint "GET" "/readiness" "200" "" "Readiness probe"
-
-echo -e "${YELLOW}Application Endpoints${NC}"
-test_endpoint "GET" "/" "200" "" "Root endpoint"
-test_endpoint "GET" "/greet" "200" "" "Greet with default name"
-test_endpoint "GET" "/greet?name=Alice" "200" "" "Greet with query param"
-test_endpoint "POST" "/greet" "200" '{"name":"Bob"}' "Greet with POST"
-
-echo -e "${YELLOW}Error Handling${NC}"
-test_endpoint "GET" "/error" "500" "" "Error endpoint"
-test_endpoint "POST" "/greet" "422" '{}' "Validation error"
-
-echo -e "\n${GREEN}All tests passed!${NC}"
-EOF
-
-chmod +x test-api.sh
-
-# Run the test script
-./test-api.sh
+# The test script will:
+# - Automatically detect API Gateway URL from Terraform outputs
+# - Test all health check endpoints (/health, /liveness, /readiness)
+# - Test all application endpoints (/, /greet with GET/POST)
+# - Test error handling and validation
+# - Use API Key authentication if enabled
+# - Provide color-coded pass/fail results
 ```
 
 > 📖 **API Documentation:** See [API-ENDPOINTS.md](docs/API-ENDPOINTS.md) for all available endpoints including:

@@ -5,7 +5,7 @@
 .PHONY: help bootstrap-create bootstrap-init bootstrap-plan bootstrap-apply bootstrap-output setup-terraform-backend setup-terraform-lambda setup-terraform-apprunner sync-env \
         lint lint-fix format-python typecheck test test-watch pre-commit-all pre-commit-update setup-pre-commit \
         docker-build docker-build-amd64 docker-push-dev docker-push-test docker-push-prod \
-        format-all clean
+        test-api format-all clean
 
 # Service folder to use (defaults to 'api')
 SERVICE ?= api
@@ -38,6 +38,7 @@ help:
 	@echo "  make app-init-prod           Initialize application Terraform for prod"
 	@echo "  make app-plan-dev            Plan application changes for dev"
 	@echo "  make app-apply-dev           Apply application infrastructure to dev"
+	@echo "  make test-api                Test deployed API endpoints"
 	@echo ""
 	@echo "Python Code Quality (SERVICE=api by default):"
 	@echo "  make lint                    Check code with Ruff"
@@ -277,6 +278,14 @@ app-plan-prod:
 app-apply-prod:
 	@echo "🚀 Applying changes to prod environment..."
 	cd terraform && terraform apply -var-file=environments/prod.tfvars
+
+# =============================================================================
+# API Testing
+# =============================================================================
+
+test-api:
+	@echo "🧪 Testing API endpoints..."
+	./scripts/test-api.sh
 
 # =============================================================================
 # Docker Commands

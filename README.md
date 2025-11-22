@@ -60,8 +60,8 @@ git clone git@github.com:gpazevedo/aws-base-python.git <YOUR-PROJECT>
 cd <YOUR-PROJECT>
 git remote remove origin
 
-# Test Python setup
-cd backend/api && uv sync && cd ../..
+# Test Python setup (install dependencies with test extras)
+cd backend/api && uv sync --extra test && cd ../..
 make test
 ```
 

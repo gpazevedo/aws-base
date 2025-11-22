@@ -2,7 +2,7 @@
 # AWS Bootstrap Infrastructure - Makefile
 # =============================================================================
 
-.PHONY: help bootstrap-create bootstrap-init bootstrap-plan bootstrap-apply bootstrap-output setup-terraform-backend sync-env \
+.PHONY: help bootstrap-create bootstrap-init bootstrap-plan bootstrap-apply bootstrap-output setup-terraform-backend setup-terraform-lambda setup-terraform-apprunner sync-env \
         lint lint-fix format-python typecheck test test-watch pre-commit-all pre-commit-update setup-pre-commit \
         docker-build docker-build-amd64 docker-push-dev docker-push-test docker-push-prod \
         format-all clean
@@ -27,7 +27,8 @@ help:
 	@echo ""
 	@echo "Setup:"
 	@echo "  make setup-terraform-backend	Generate backend configs for application Terraform"
-	@echo "  make setup-terraform-lambda    Generate example lambda Terraform files"
+	@echo "  make setup-terraform-lambda    Generate example Lambda Terraform files"
+	@echo "  make setup-terraform-apprunner Generate example App Runner Terraform files"
 	@echo "  make setup-pre-commit        Setup pre-commit hooks (Ruff + Pyright)"
 	@echo "  make sync-env                Sync terraform.tfvars to .env file"
 	@echo ""
@@ -214,8 +215,12 @@ setup-terraform-backend:
 	./scripts/setup-terraform-backend.sh
 
 setup-terraform-lambda:
-	@echo "🏗️  Generating example lambda Terraform files..."
+	@echo "🏗️  Generating example Lambda Terraform files..."
 	./scripts/setup-terraform-lambda.sh
+
+setup-terraform-apprunner:
+	@echo "🏗️  Generating example App Runner Terraform files..."
+	./scripts/setup-terraform-apprunner.sh
 
 sync-env:
 	@echo "🔄 Syncing terraform.tfvars to .env file..."

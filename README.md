@@ -237,7 +237,8 @@ make bootstrap-apply
 ```bash
 # Generate Terraform configs
 make setup-terraform-backend
-make setup-terraform-lambda  # Optional: generates example Lambda Terraform
+make setup-terraform-lambda     # Optional: generates example Lambda Terraform
+make setup-terraform-apprunner  # Optional: generates example App Runner Terraform
 
 # Build and push Docker image to ECR
 ./scripts/docker-push.sh dev api Dockerfile.lambda
@@ -447,7 +448,7 @@ All Dockerfiles support building for both arm64 and amd64 architectures:
 
 1. ✅ **Bootstrap infrastructure deployed** (`make bootstrap-apply`)
 2. ✅ **Backend configs generated** (`make setup-terraform-backend`)
-3. ✅ **Application Terraform files created** (`make setup-terraform-lambda` - optional, for Lambda)
+3. ✅ **Application Terraform files created** (`make setup-terraform-lambda` or `make setup-terraform-apprunner` - optional)
 4. ✅ **GitHub repository secrets configured** (see bootstrap output)
 
 **Deployment workflow:**
@@ -672,7 +673,8 @@ terraform output lambda_function_url
 ┌─────────────────────────────────────────────────────────────┐
 │  PHASE 4: Deploy Infrastructure                             │
 │                                                             │
-│  1. Generate: make setup-terraform-lambda  (optional)       │
+│  1. Generate: make setup-terraform-lambda or                │
+│               make setup-terraform-apprunner (optional)     │
 │  2. Init:     make app-init-dev                             │
 │  3. Plan:     make app-plan-dev                             │
 │  4. Deploy:   make app-apply-dev                            │
@@ -1140,11 +1142,12 @@ aws-base/
 │   └── Dockerfile.eks         # Shared EKS container
 │
 ├── scripts/
-│   ├── setup-terraform-backend.sh  # Generate backend configs
-│   ├── setup-terraform-lambda.sh   # Generate Lambda Terraform files
-│   ├── generate-workflows.sh       # Generate GitHub Actions workflows
-│   ├── docker-push.sh              # Build and push Docker images to ECR
-│   ├── sync-tfvars-to-env.py       # Sync terraform vars to .env
+│   ├── setup-terraform-backend.sh    # Generate backend configs
+│   ├── setup-terraform-lambda.sh     # Generate Lambda Terraform files
+│   ├── setup-terraform-apprunner.sh  # Generate App Runner Terraform files
+│   ├── generate-workflows.sh         # Generate GitHub Actions workflows
+│   ├── docker-push.sh                # Build and push Docker images to ECR
+│   ├── sync-tfvars-to-env.py         # Sync terraform vars to .env
 │   └── setup-pre-commit.sh         # Setup pre-commit hooks
 │
 ├── docs/
@@ -1395,6 +1398,7 @@ This repository includes comprehensive documentation for all aspects of the boot
 - **[⚙️ Scripts Documentation](docs/SCRIPTS.md)** - Automation scripts
   - `setup-terraform-backend.sh` - Generate backend configs
   - `setup-terraform-lambda.sh` - Generate example Lambda Terraform files
+  - `setup-terraform-apprunner.sh` - Generate example App Runner Terraform files
   - `generate-workflows.sh` - Create GitHub Actions workflows
   - `docker-push.sh` - Build and push Docker images
   - `setup-pre-commit.sh` - Install code quality hooks

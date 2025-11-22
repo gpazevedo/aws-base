@@ -40,7 +40,18 @@ echo ""
 # Detect CPU Architecture and Setup QEMU if needed
 # =============================================================================
 HOST_ARCH=$(uname -m)
-TARGET_ARCH="arm64"  # Always build for arm64 (AWS Graviton2)
+
+# =============================================================================
+# IMPORTANT: ECR images MUST always be arm64 for AWS Graviton2
+# This is hardcoded and cannot be overridden to ensure consistency across:
+# - AWS Lambda (Graviton2 processors)
+# - AWS App Runner (arm64 instances)
+# - AWS EKS (Graviton2 nodes)
+#
+# DO NOT modify this value. Local testing with other architectures should
+# use 'make docker-build ARCH=amd64' which does NOT push to ECR.
+# =============================================================================
+TARGET_ARCH="arm64"  # REQUIRED: Always build for arm64 (AWS Graviton2)
 
 echo -e "${BLUE}🖥️  Detecting host architecture...${NC}"
 echo "   Host CPU: ${HOST_ARCH}"

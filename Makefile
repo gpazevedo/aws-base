@@ -48,13 +48,13 @@ help:
 	@echo "  SERVICE=worker make lint     Run lint for specific service"
 	@echo ""
 	@echo "Docker (SERVICE=api, DOCKERFILE=Dockerfile.lambda by default):"
-	@echo "  make docker-build            Build Docker image (arm64 by default)"
+	@echo "  make docker-build            Build Docker image (arm64 by default, LOCAL ONLY)"
 	@echo "  make docker-build-amd64      Build Docker image for amd64 (local testing)"
 	@echo "  SERVICE=worker make docker-build  Build specific service"
 	@echo "  DOCKERFILE=Dockerfile.eks make docker-build  Use different Dockerfile"
-	@echo "  make docker-push-dev         Push Docker image to dev ECR (always arm64)"
-	@echo "  make docker-push-test        Push Docker image to test ECR (always arm64)"
-	@echo "  make docker-push-prod        Push Docker image to prod ECR (always arm64)"
+	@echo "  make docker-push-dev         Build & push to dev ECR (ALWAYS arm64)"
+	@echo "  make docker-push-test        Build & push to test ECR (ALWAYS arm64)"
+	@echo "  make docker-push-prod        Build & push to prod ECR (ALWAYS arm64)"
 	@echo "  SERVICE=worker DOCKERFILE=Dockerfile.lambda make docker-push-dev  Push worker service"
 	@echo ""
 	@echo "Utilities:"
@@ -283,7 +283,9 @@ app-apply-prod:
 # =============================================================================
 
 docker-build:
-	@echo "🐳 Building Docker image with uv..."
+	@echo "🐳 Building Docker image with uv (LOCAL TESTING ONLY)..."
+	@echo "   Note: This is for local testing. ECR pushes always use arm64 via docker-push.sh"
+	@echo ""
 	@if [ -f bootstrap/terraform.tfvars ]; then \
 		PROJECT_NAME=$$(grep '^project_name' bootstrap/terraform.tfvars | cut -d'=' -f2 | cut -d'#' -f1 | tr -d ' "'); \
 	else \
@@ -308,15 +310,21 @@ docker-build-amd64:
 	@$(MAKE) docker-build ARCH=amd64
 
 docker-push-dev:
-	@echo "📤 Pushing Docker image to dev ECR (service: $(SERVICE))..."
+	@echo "📤 Building and pushing Docker image to dev ECR (service: $(SERVICE))..."
+	@echo "   ⚠️  IMPORTANT: Image will be built for arm64 architecture (AWS Graviton2)"
+	@echo ""
 	./scripts/docker-push.sh dev $(SERVICE) $(DOCKERFILE)
 
 docker-push-test:
-	@echo "📤 Pushing Docker image to test ECR (service: $(SERVICE))..."
+	@echo "📤 Building and pushing Docker image to test ECR (service: $(SERVICE))..."
+	@echo "   ⚠️  IMPORTANT: Image will be built for arm64 architecture (AWS Graviton2)"
+	@echo ""
 	./scripts/docker-push.sh test $(SERVICE) $(DOCKERFILE)
 
 docker-push-prod:
-	@echo "📤 Pushing Docker image to prod ECR (service: $(SERVICE))..."
+	@echo "📤 Building and pushing Docker image to prod ECR (service: $(SERVICE))..."
+	@echo "   ⚠️  IMPORTANT: Image will be built for arm64 architecture (AWS Graviton2)"
+	@echo ""
 	./scripts/docker-push.sh prod $(SERVICE) $(DOCKERFILE)
 
 # =============================================================================

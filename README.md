@@ -247,18 +247,190 @@ make setup-terraform-apprunner  # Optional: generates example App Runner Terrafo
 make app-init-dev
 make app-apply-dev
 
+# ============================================================================
+# Test Your Deployment
+# ============================================================================
+
 # Get primary endpoint (API Gateway URL for cloud, Lambda URL for local)
 PRIMARY_URL=$(cd terraform && terraform output -raw primary_endpoint)
+echo "Testing API at: $PRIMARY_URL"
 
-# Test your API
-curl $PRIMARY_URL
+# ----------------------------------------------------------------------------
+# 1. Health Check Endpoints
+# ----------------------------------------------------------------------------
+
+echo "Testing health checks..."
+
+# Comprehensive health check
+curl -s $PRIMARY_URL/health | jq
+# Expected: {"status":"healthy","timestamp":"...","uptime_seconds":...,"version":"0.1.0"}
+
+# Liveness probe
+curl -s $PRIMARY_URL/liveness | jq
+# Expected: {"status":"alive"}
+
+# Readiness probe
+curl -s $PRIMARY_URL/readiness | jq
+# Expected: {"status":"ready"}
+
+# ----------------------------------------------------------------------------
+# 2. Application Endpoints
+# ----------------------------------------------------------------------------
+
+echo "Testing application endpoints..."
+
+# Root endpoint
+curl -s $PRIMARY_URL/ | jq
 # Expected: {"message":"Hello, World!","version":"0.1.0"}
 
-# Test health endpoint
-curl $PRIMARY_URL/health
+# Greet with query parameter
+curl -s "$PRIMARY_URL/greet?name=Alice" | jq
+# Expected: {"message":"Hello, Alice!","version":"0.1.0"}
 
-# View interactive API documentation
-open "$PRIMARY_URL/docs"  # or visit in browser
+# Greet with default name
+curl -s $PRIMARY_URL/greet | jq
+# Expected: {"message":"Hello, World!","version":"0.1.0"}
+
+# Greet with POST request
+curl -s -X POST $PRIMARY_URL/greet \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Bob"}' | jq
+# Expected: {"message":"Hello, Bob!","version":"0.1.0"}
+
+# ----------------------------------------------------------------------------
+# 3. Error Handling
+# ----------------------------------------------------------------------------
+
+echo "Testing error handling..."
+
+# Test error endpoint
+curl -s $PRIMARY_URL/error | jq
+# Expected: 500 error with {"detail":"This is a test error"}
+
+# Test validation error (missing required field)
+curl -s -X POST $PRIMARY_URL/greet \
+  -H "Content-Type: application/json" \
+  -d '{}' | jq
+# Expected: 422 validation error
+
+# ----------------------------------------------------------------------------
+# 4. Interactive Documentation
+# ----------------------------------------------------------------------------
+
+echo "Opening interactive API documentation..."
+
+# View Swagger UI (interactive API explorer)
+open "$PRIMARY_URL/docs"  # macOS
+# xdg-open "$PRIMARY_URL/docs"  # Linux
+
+# View ReDoc (alternative documentation)
+open "$PRIMARY_URL/redoc"  # macOS
+
+# Download OpenAPI schema
+curl -s $PRIMARY_URL/openapi.json > api-schema.json
+echo "OpenAPI schema saved to api-schema.json"
+
+# ----------------------------------------------------------------------------
+# 5. API Key Authentication (if enabled)
+# ----------------------------------------------------------------------------
+
+# If you enabled API Key authentication (enable_api_key = true), get the key:
+if cd terraform && terraform output api_key_value &>/dev/null; then
+  echo "API Key authentication is enabled"
+  API_KEY=$(cd terraform && terraform output -raw api_key_value)
+
+  # Test with API Key
+  echo "Testing with API Key..."
+  curl -s -H "x-api-key: $API_KEY" $PRIMARY_URL/health | jq
+
+  # Test without API Key (should fail)
+  echo "Testing without API Key (should return 403)..."
+  curl -s $PRIMARY_URL/health | jq
+  # Expected: {"message":"Forbidden"}
+fi
+
+# ----------------------------------------------------------------------------
+# 6. Complete Test Script (Optional)
+# ----------------------------------------------------------------------------
+
+# For comprehensive testing, create a test script:
+cat > test-api.sh <<'EOF'
+#!/bin/bash
+set -e
+
+# Colors for output
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+# Get API URL
+cd terraform
+PRIMARY_URL=$(terraform output -raw primary_endpoint)
+API_KEY=$(terraform output -raw api_key_value 2>/dev/null || echo "")
+cd ..
+
+echo -e "${YELLOW}Testing API at: $PRIMARY_URL${NC}\n"
+
+# Helper function to test endpoint
+test_endpoint() {
+  local method=$1
+  local path=$2
+  local expected_status=$3
+  local data=$4
+  local description=$5
+
+  echo -n "Testing: $description... "
+
+  # Build curl command
+  local cmd="curl -s -w '%{http_code}' -o /tmp/response.json"
+  if [ -n "$API_KEY" ]; then
+    cmd="$cmd -H 'x-api-key: $API_KEY'"
+  fi
+  cmd="$cmd -X $method"
+  if [ -n "$data" ]; then
+    cmd="$cmd -H 'Content-Type: application/json' -d '$data'"
+  fi
+  cmd="$cmd $PRIMARY_URL$path"
+
+  # Execute request
+  status_code=$(eval $cmd)
+
+  # Check status code
+  if [ "$status_code" = "$expected_status" ]; then
+    echo -e "${GREEN}✓ PASS${NC} (HTTP $status_code)"
+    jq -C '.' /tmp/response.json 2>/dev/null || cat /tmp/response.json
+  else
+    echo -e "${RED}✗ FAIL${NC} (Expected $expected_status, got $status_code)"
+    cat /tmp/response.json
+    exit 1
+  fi
+  echo ""
+}
+
+# Run tests
+echo -e "${YELLOW}Health Check Endpoints${NC}"
+test_endpoint "GET" "/health" "200" "" "Health check"
+test_endpoint "GET" "/liveness" "200" "" "Liveness probe"
+test_endpoint "GET" "/readiness" "200" "" "Readiness probe"
+
+echo -e "${YELLOW}Application Endpoints${NC}"
+test_endpoint "GET" "/" "200" "" "Root endpoint"
+test_endpoint "GET" "/greet" "200" "" "Greet with default name"
+test_endpoint "GET" "/greet?name=Alice" "200" "" "Greet with query param"
+test_endpoint "POST" "/greet" "200" '{"name":"Bob"}' "Greet with POST"
+
+echo -e "${YELLOW}Error Handling${NC}"
+test_endpoint "GET" "/error" "500" "" "Error endpoint"
+test_endpoint "POST" "/greet" "422" '{}' "Validation error"
+
+echo -e "\n${GREEN}All tests passed!${NC}"
+EOF
+
+chmod +x test-api.sh
+
+# Run the test script
+./test-api.sh
 ```
 
 > 📖 **API Documentation:** See [API-ENDPOINTS.md](docs/API-ENDPOINTS.md) for all available endpoints including:

@@ -309,7 +309,7 @@ variable "cors_allow_headers" {
 variable "enable_api_key" {
   description = "Enable API Key authentication for API Gateway"
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "api_key_name" {
@@ -703,7 +703,7 @@ cors_allow_methods = ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
 cors_allow_headers = ["Content-Type", "Authorization", "X-Requested-With"]
 
 # API Key Authentication (Optional)
-enable_api_key              = false  # Set to true to enable API Key authentication
+enable_api_key              = true  # Set to true to enable API Key authentication
 api_key_name                = ""     # Auto-generated if not specified
 api_usage_plan_quota_limit  = 0      # Max requests per period (0 = unlimited)
 api_usage_plan_quota_period = "MONTH" # DAY, WEEK, or MONTH

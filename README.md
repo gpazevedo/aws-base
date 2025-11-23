@@ -330,13 +330,16 @@ ecr_repositories = ["web-frontend"]  # Additional ECR repo
 
 | Issue | Solution |
 |-------|----------|
+| Missing dependencies in Lambda | See [Docker Dependencies Guide](docs/TROUBLESHOOTING-DOCKER-DEPENDENCIES.md) |
 | Bucket already exists | Change `state_bucket_name` (must be globally unique) |
 | API Gateway 403 | Check Lambda permissions: `aws_lambda_permission.api_gateway` |
 | No endpoint | Enable either `enable_api_gateway_standard` or `enable_direct_access` |
 | Rate limiting | Adjust `api_throttle_burst_limit` in tfvars |
 | EKS nodes not joining | Check security groups & VPC NAT gateway |
 
-**📖 Full guide:** [TROUBLESHOOTING-API-GATEWAY.md](docs/TROUBLESHOOTING-API-GATEWAY.md)
+**📖 Guides:**
+- [Docker Dependencies](docs/TROUBLESHOOTING-DOCKER-DEPENDENCIES.md) - Fix import errors
+- [API Gateway](docs/TROUBLESHOOTING-API-GATEWAY.md) - API Gateway issues
 
 ---
 

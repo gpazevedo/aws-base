@@ -28,11 +28,12 @@ resource "aws_api_gateway_rest_api" "api" {
 resource "aws_api_gateway_deployment" "api" {
   rest_api_id = aws_api_gateway_rest_api.api.id
 
-  # Force new deployment when configuration changes
+  # Force new deployment when configuration or integrations change
   triggers = {
     redeployment = sha1(jsonencode({
-      rest_api_id = aws_api_gateway_rest_api.api.id
-      timestamp   = timestamp()
+      rest_api_id     = aws_api_gateway_rest_api.api.id
+      integration_ids = var.integration_ids
+      timestamp       = timestamp()
     }))
   }
 

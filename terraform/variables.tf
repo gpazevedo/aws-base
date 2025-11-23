@@ -137,11 +137,14 @@ variable "cors_allow_headers" {
   default     = ["Content-Type", "Authorization", "X-Requested-With"]
 }
 
+# =============================================================================
 # API Key Authentication
+# =============================================================================
+
 variable "enable_api_key" {
   description = "Enable API Key authentication for API Gateway"
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "api_key_name" {
@@ -171,4 +174,86 @@ variable "additional_tags" {
   description = "Additional tags to apply to resources"
   type        = map(string)
   default     = {}
+}
+
+# =============================================================================
+# App Runner Configuration
+# =============================================================================
+
+variable "apprunner_port" {
+  description = "Port that App Runner service listens on"
+  type        = number
+  default     = 8080
+}
+
+variable "apprunner_cpu" {
+  description = "CPU units for App Runner (0.25 vCPU = 256, 0.5 vCPU = 512, 1 vCPU = 1024, 2 vCPU = 2048, 4 vCPU = 4096)"
+  type        = string
+  default     = "1024"
+
+  validation {
+    condition     = contains(["256", "512", "1024", "2048", "4096"], var.apprunner_cpu)
+    error_message = "CPU must be one of: 256, 512, 1024, 2048, 4096"
+  }
+}
+
+variable "apprunner_memory" {
+  description = "Memory for App Runner in MB (512, 1024, 2048, 3072, 4096, 6144, 8192, 10240, 12288)"
+  type        = string
+  default     = "2048"
+
+  validation {
+    condition     = contains(["512", "1024", "2048", "3072", "4096", "6144", "8192", "10240", "12288"], var.apprunner_memory)
+    error_message = "Memory must be one of: 512, 1024, 2048, 3072, 4096, 6144, 8192, 10240, 12288"
+  }
+}
+
+# Auto Scaling Configuration
+variable "apprunner_min_instances" {
+  description = "Minimum number of App Runner instances"
+  type        = number
+  default     = 1
+}
+
+variable "apprunner_max_instances" {
+  description = "Maximum number of App Runner instances"
+  type        = number
+  default     = 10
+}
+
+variable "apprunner_max_concurrency" {
+  description = "Maximum concurrent requests per App Runner instance"
+  type        = number
+  default     = 100
+}
+
+# Health Check Configuration
+variable "health_check_path" {
+  description = "Health check endpoint path"
+  type        = string
+  default     = "/health"
+}
+
+variable "health_check_interval" {
+  description = "Health check interval in seconds"
+  type        = number
+  default     = 10
+}
+
+variable "health_check_timeout" {
+  description = "Health check timeout in seconds"
+  type        = number
+  default     = 5
+}
+
+variable "health_check_healthy_threshold" {
+  description = "Number of consecutive successful health checks to mark as healthy"
+  type        = number
+  default     = 1
+}
+
+variable "health_check_unhealthy_threshold" {
+  description = "Number of consecutive failed health checks to mark as unhealthy"
+  type        = number
+  default     = 5
 }

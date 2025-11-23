@@ -439,20 +439,20 @@ cat > "$APPRUNNER_TF_FILE" <<'TEMPLATE_EOF'
 
 # Get App Runner IAM roles from bootstrap
 data "aws_iam_role" "apprunner_access_SERVICE_NAME_PLACEHOLDER" {
-  name = "\${var.project_name}-apprunner-access"
+  name = "${var.project_name}-apprunner-access"
 }
 
 data "aws_iam_role" "apprunner_instance_SERVICE_NAME_PLACEHOLDER" {
-  name = "\${var.project_name}-apprunner-instance"
+  name = "${var.project_name}-apprunner-instance"
 }
 
 # App Runner Service
 resource "aws_apprunner_service" "SERVICE_NAME_PLACEHOLDER" {
-  service_name = "\${var.project_name}-\${var.environment}-SERVICE_NAME_PLACEHOLDER"
+  service_name = "${var.project_name}-${var.environment}-SERVICE_NAME_PLACEHOLDER"
 
   source_configuration {
     image_repository {
-      image_identifier      = "\${data.aws_ecr_repository.app.repository_url}:SERVICE_NAME_PLACEHOLDER-\${var.environment}-latest"
+      image_identifier      = "${data.aws_ecr_repository.app.repository_url}:SERVICE_NAME_PLACEHOLDER-${var.environment}-latest"
       image_repository_type = "ECR"
 
       image_configuration {
@@ -492,14 +492,14 @@ resource "aws_apprunner_service" "SERVICE_NAME_PLACEHOLDER" {
   auto_scaling_configuration_arn = aws_apprunner_auto_scaling_configuration_version.SERVICE_NAME_PLACEHOLDER.arn
 
   tags = {
-    Name        = "\${var.project_name}-\${var.environment}-SERVICE_NAME_PLACEHOLDER"
+    Name        = "${var.project_name}-${var.environment}-SERVICE_NAME_PLACEHOLDER"
     Service     = "SERVICE_NAME_PLACEHOLDER"
     Description = "Main API App Runner service"
   }
 
   # Note: Container image must exist in ECR before first apply
   # Build and push with:
-  #   ./scripts/docker-push.sh \${var.environment} SERVICE_NAME_PLACEHOLDER Dockerfile.apprunner
+  #   ./scripts/docker-push.sh ${var.environment} SERVICE_NAME_PLACEHOLDER Dockerfile.apprunner
   lifecycle {
     ignore_changes = [
       source_configuration[0].image_repository[0].image_identifier  # Allow image updates without Terraform
@@ -509,14 +509,14 @@ resource "aws_apprunner_service" "SERVICE_NAME_PLACEHOLDER" {
 
 # Auto Scaling Configuration
 resource "aws_apprunner_auto_scaling_configuration_version" "SERVICE_NAME_PLACEHOLDER" {
-  auto_scaling_configuration_name = "\${var.project_name}-\${var.environment}-SERVICE_NAME_PLACEHOLDER-autoscaling"
+  auto_scaling_configuration_name = "${var.project_name}-${var.environment}-SERVICE_NAME_PLACEHOLDER-autoscaling"
 
   min_size         = var.apprunner_min_instances
   max_size         = var.apprunner_max_instances
   max_concurrency  = var.apprunner_max_concurrency
 
   tags = {
-    Name    = "\${var.project_name}-\${var.environment}-SERVICE_NAME_PLACEHOLDER-autoscaling"
+    Name    = "${var.project_name}-${var.environment}-SERVICE_NAME_PLACEHOLDER-autoscaling"
     Service = "SERVICE_NAME_PLACEHOLDER"
   }
 }
@@ -527,7 +527,7 @@ resource "aws_apprunner_auto_scaling_configuration_version" "SERVICE_NAME_PLACEH
 
 output "apprunner_SERVICE_NAME_PLACEHOLDER_url" {
   description = "App Runner service URL for SERVICE_NAME_PLACEHOLDER"
-  value       = "https://\${aws_apprunner_service.SERVICE_NAME_PLACEHOLDER.service_url}"
+  value       = "https://${aws_apprunner_service.SERVICE_NAME_PLACEHOLDER.service_url}"
 }
 
 output "apprunner_SERVICE_NAME_PLACEHOLDER_arn" {

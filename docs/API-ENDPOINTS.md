@@ -19,7 +19,7 @@ This document describes all available endpoints in the FastAPI Lambda applicatio
 
 ## API Gateway Architecture
 
-This template uses a **modular API Gateway architecture** for better organization and reusability.
+This template uses a **modular API Gateway architecture** for better organization and reusability with **path-based routing** for multiple services.
 
 ### Modular Setup (Recommended)
 
@@ -27,20 +27,33 @@ The API Gateway configuration is split into reusable modules:
 
 ```
 terraform/
-├── api-gateway.tf              # Orchestrates modules
+├── api-gateway.tf                           # Orchestrates all integrations
 ├── modules/
-│   ├── api-gateway-shared/    # REST API, stage, deployment, API Keys
-│   └── api-gateway-lambda/    # AWS_PROXY Lambda integration
+│   ├── api-gateway-shared/                 # REST API, stage, deployment, API Keys
+│   ├── api-gateway-lambda-integration/     # AWS_PROXY Lambda integration
+│   └── api-gateway-apprunner-integration/  # HTTP_PROXY AppRunner integration
 ```
 
 **Benefits:**
+
 - ✅ Separation of concerns (shared resources vs. service-specific)
-- ✅ Reusable across multiple services
+- ✅ Reusable across multiple Lambda and AppRunner services
 - ✅ Built-in API Key authentication support
+- ✅ Path-based routing (e.g., `/api/*`, `/worker/*`, `/apprunner/*`)
 - ✅ Standardized CORS and logging configuration
 - ✅ Easier to maintain and debug
 
-**Integration Type:** `AWS_PROXY` - API Gateway forwards requests directly to Lambda with automatic request/response transformation.
+**Integration Types:**
+
+- `AWS_PROXY` - API Gateway forwards requests directly to Lambda
+- `HTTP_PROXY` - API Gateway forwards requests to AppRunner services
+
+**Path-Based Routing:**
+
+- **Lambda 'api' service** → Root path: `/`, `/health`, `/greet`
+- **Lambda 'worker' service** → `/worker/*` paths
+- **AppRunner 'apprunner' service** → `/apprunner/*` paths
+- **AppRunner 'web' service** → `/web/*` paths
 
 For troubleshooting API Gateway issues, see **[API Gateway Troubleshooting Guide](TROUBLESHOOTING-API-GATEWAY.md)**.
 
@@ -713,6 +726,40 @@ uv run pytest -v
 # Run with coverage
 uv run pytest --cov=. --cov-report=html
 ```
+
+### Testing Multiple Services
+
+When using path-based routing with multiple Lambda and AppRunner services:
+
+```bash
+# Get primary API Gateway endpoint
+PRIMARY_URL=$(cd terraform && terraform output -raw primary_endpoint)
+
+# Test Lambda services (root path routing)
+curl $PRIMARY_URL/health              # 'api' service health
+curl "$PRIMARY_URL/greet?name=Test"   # 'api' service endpoint
+curl $PRIMARY_URL/worker/health       # 'worker' service health
+curl $PRIMARY_URL/scheduler/status    # 'scheduler' service status
+
+# Test AppRunner services (path prefix routing)
+curl $PRIMARY_URL/apprunner/health    # AppRunner 'apprunner' service
+curl "$PRIMARY_URL/apprunner/greet?name=Claude"  # AppRunner greet endpoint
+curl $PRIMARY_URL/web/health          # AppRunner 'web' service
+curl $PRIMARY_URL/admin/health        # AppRunner 'admin' service
+
+# Or use make targets
+make test-lambda-api                  # Test 'api' Lambda service
+make test-lambda-worker               # Test 'worker' Lambda service
+make test-apprunner-apprunner         # Test 'apprunner' AppRunner service
+make test-apprunner-web               # Test 'web' AppRunner service
+```
+
+**Path Routing Rules:**
+
+- First Lambda service (`api`) handles root path: `/`, `/health`, `/greet`, etc.
+- Additional Lambda services use path prefix: `/worker/*`, `/scheduler/*`
+- AppRunner services use path prefix: `/apprunner/*`, `/web/*`, `/admin/*`
+- All services accessible through single API Gateway endpoint
 
 ---
 

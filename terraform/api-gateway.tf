@@ -43,6 +43,13 @@ module "api_gateway_shared" {
   usage_plan_quota_period = var.api_usage_plan_quota_period
 
   tags = var.additional_tags
+
+  # Pass integration IDs to trigger redeployment when integrations change
+  # This creates an implicit dependency on the integration modules
+  integration_ids = compact([
+    try(module.api_gateway_lambda_api[0].integration_id, ""),
+    try(module.api_gateway_apprunner_apprunner[0].integration_id, "")
+  ])
 }
 
 # =============================================================================
@@ -97,3 +104,21 @@ module "api_gateway_lambda_api" {
 #   api_key_required     = var.enable_api_key
 # }
 # =============================================================================
+
+# Integration for 'apprunner' AppRunner service
+module "api_gateway_apprunner_apprunner" {
+  source = "./modules/api-gateway-apprunner-integration"
+  count  = local.api_gateway_enabled ? 1 : 0
+
+  service_name          = "apprunner"
+  path_prefix           = "apprunner"  # /apprunner, /apprunner/*
+
+  api_id                = module.api_gateway_shared[0].api_id
+  api_root_resource_id  = module.api_gateway_shared[0].root_resource_id
+  api_execution_arn     = module.api_gateway_shared[0].execution_arn
+
+  apprunner_service_url = aws_apprunner_service.apprunner.service_url
+
+  enable_root_method    = false
+  api_key_required      = var.enable_api_key
+}

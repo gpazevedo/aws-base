@@ -1,12 +1,12 @@
-# Application Infrastructure
+# Application Infrastructure (App Runner)
 
-This directory contains Terraform configuration for your application infrastructure.
+This directory contains Terraform configuration for your App Runner application infrastructure.
 
 ## Structure
 
 - `main.tf` - Main Terraform configuration and provider setup
 - `variables.tf` - Variable definitions
-- `lambda.tf` - Lambda function resources
+- `apprunner.tf` - App Runner service resources
 - `api-gateway.tf` - API Gateway configuration (optional)
 - `outputs.tf` - Output values
 - `environments/` - Environment-specific variable files
@@ -57,16 +57,62 @@ make app-plan-prod
 make app-apply-prod
 ```
 
+## App Runner vs Lambda
+
+This configuration uses **AWS App Runner** instead of Lambda:
+
+| Feature | Lambda | App Runner |
+|---------|--------|------------|
+| **Runtime** | Event-driven, serverless functions | Containerized web applications |
+| **Scaling** | Automatic, per request | Instance-based auto-scaling |
+| **Cold Starts** | Yes (can be significant) | Minimal (instances stay warm) |
+| **Pricing** | Pay per invocation + duration | Pay per hour per instance |
+| **Best For** | Event processing, APIs | Long-running web services |
+| **Configuration** | Memory (128MB-10GB) | CPU (0.25-4 vCPU) + Memory (0.5-12GB) |
+| **Web Server** | Managed by AWS (Lambda URLs) | You provide (FastAPI, Flask, etc.) |
+
+**When to use App Runner:**
+- ✅ Long-running web applications
+- ✅ WebSocket support needed
+- ✅ Consistent traffic patterns
+- ✅ Need control over web server configuration
+- ✅ Want minimal cold starts
+
+**When to use Lambda:**
+- ✅ Event-driven workloads
+- ✅ Sporadic traffic (pay only when used)
+- ✅ Simple request/response APIs
+- ✅ Need massive scale (thousands of concurrent requests)
+
 ## Customization
 
 1. Edit `environments/{env}.tfvars` to customize settings per environment
-2. Modify `lambda.tf` to add more Lambda functions
-3. Enable API Gateway by setting `enable_api_gateway = true` in tfvars
+2. Modify `apprunner.tf` to add more App Runner services
+3. Enable API Gateway by setting `enable_api_gateway_standard = true` in tfvars
 4. Add more resources as needed (databases, queues, etc.)
+
+## API Gateway Integration
+
+By default, API Gateway is enabled as the standard entry point:
+- **API Gateway** → HTTP_PROXY → **App Runner Service**
+
+Benefits:
+- Custom domain names
+- API Key authentication
+- Rate limiting and throttling
+- Request/response transformation
+- Caching
+
+To use direct App Runner URLs (development only):
+```hcl
+enable_api_gateway_standard = false
+enable_direct_access        = true
+```
 
 ## Notes
 
-- Lambda functions use container images from ECR
+- App Runner services use container images from ECR
 - CloudWatch Logs are automatically configured
-- Lambda Function URLs are enabled by default (no API Gateway needed)
+- Health checks ensure service availability
+- Auto-scaling based on concurrent requests per instance
 - First apply will fail if Docker image doesn't exist in ECR

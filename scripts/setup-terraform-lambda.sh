@@ -474,152 +474,113 @@ TEMPLATE_EOF
 sed -i "s/SERVICE_NAME_PLACEHOLDER/${SERVICE_NAME}/g" "$LAMBDA_TF_FILE"
 
 # =============================================================================
-# Create api-gateway.tf (optional)
+# Smart API Gateway Integration Management
 # =============================================================================
-echo "📝 Creating terraform/api-gateway.tf..."
-cat > "$TERRAFORM_DIR/api-gateway.tf" <<'EOF'
+# Either creates api-gateway.tf or appends new service integration
+
+API_GATEWAY_FILE="$TERRAFORM_DIR/api-gateway.tf"
+
+# Determine path_prefix based on service name
+if [ "$SERVICE_NAME" = "api" ]; then
+  PATH_PREFIX=""  # Root path for 'api' service
+  ENABLE_ROOT="true"
+else
+  PATH_PREFIX="$SERVICE_NAME"  # Path-based for other services
+  ENABLE_ROOT="false"
+fi
+
+# Check if API Gateway file exists
+if [ ! -f "$API_GATEWAY_FILE" ]; then
+  echo "📝 Creating terraform/api-gateway.tf (new modular structure)..."
+
+  cat > "$API_GATEWAY_FILE" <<'EOF'
 # =============================================================================
-# API Gateway Configuration (Optional)
+# API Gateway Configuration (Standard Mode)
 # =============================================================================
-# Uncomment this file to use API Gateway instead of Lambda Function URLs
+# This file configures API Gateway as the standard entry point for services
+# Uses modular architecture for shared configuration and service-specific integrations
 # =============================================================================
 
-# API Gateway REST API
-resource "aws_api_gateway_rest_api" "api" {
-  count = var.enable_api_gateway ? 1 : 0
-
-  name        = "${var.project_name}-${var.environment}-api"
-  description = "API Gateway for ${var.project_name} ${var.environment}"
-
-  endpoint_configuration {
-    types = ["REGIONAL"]
-  }
-}
-
-# Root resource proxy
-resource "aws_api_gateway_resource" "proxy" {
-  count = var.enable_api_gateway ? 1 : 0
-
-  rest_api_id = aws_api_gateway_rest_api.api[0].id
-  parent_id   = aws_api_gateway_rest_api.api[0].root_resource_id
-  path_part   = "{proxy+}"
-}
-
-# ANY method for proxy
-resource "aws_api_gateway_method" "proxy" {
-  count = var.enable_api_gateway ? 1 : 0
-
-  rest_api_id      = aws_api_gateway_rest_api.api[0].id
-  resource_id      = aws_api_gateway_resource.proxy[0].id
-  http_method      = "ANY"
-  authorization    = "NONE"
-  api_key_required = var.enable_api_key
-}
-
-# Lambda integration
-resource "aws_api_gateway_integration" "lambda" {
-  count = var.enable_api_gateway ? 1 : 0
-
-  rest_api_id = aws_api_gateway_rest_api.api[0].id
-  resource_id = aws_api_gateway_method.proxy[0].resource_id
-  http_method = aws_api_gateway_method.proxy[0].http_method
-
-  integration_http_method = "POST"
-  type                    = "AWS_PROXY"
-  uri                     = aws_lambda_function.api.invoke_arn
-}
-
-# Deployment
-resource "aws_api_gateway_deployment" "api" {
-  count = var.enable_api_gateway ? 1 : 0
-
-  depends_on = [
-    aws_api_gateway_integration.lambda
-  ]
-
-  rest_api_id = aws_api_gateway_rest_api.api[0].id
-
-  lifecycle {
-    create_before_destroy = true
-  }
-}
-
-# Stage
-resource "aws_api_gateway_stage" "api" {
-  count = var.enable_api_gateway ? 1 : 0
-
-  deployment_id = aws_api_gateway_deployment.api[0].id
-  rest_api_id   = aws_api_gateway_rest_api.api[0].id
-  stage_name    = var.environment
-}
-
-# Lambda permission for API Gateway
-resource "aws_lambda_permission" "api_gateway" {
-  count = var.enable_api_gateway ? 1 : 0
-
-  statement_id  = "AllowAPIGatewayInvoke"
-  action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.api.function_name
-  principal     = "apigateway.amazonaws.com"
-  source_arn    = "${aws_api_gateway_rest_api.api[0].execution_arn}/*/*"
+locals {
+  # Determine if API Gateway should be enabled
+  api_gateway_enabled = var.enable_api_gateway_standard || var.enable_api_gateway
 }
 
 # =============================================================================
-# API Key Authentication (Optional)
+# Shared API Gateway Module
 # =============================================================================
 
-# API Key
-resource "aws_api_gateway_api_key" "api_key" {
-  count = var.enable_api_gateway && var.enable_api_key ? 1 : 0
+module "api_gateway_shared" {
+  source = "./modules/api-gateway-shared"
+  count  = local.api_gateway_enabled ? 1 : 0
 
-  name        = var.api_key_name != "" ? var.api_key_name : "${var.project_name}-${var.environment}-api-key"
-  description = "API Key for ${var.project_name} ${var.environment} API"
-  enabled     = true
+  project_name = var.project_name
+  environment  = var.environment
+  api_name     = "${var.project_name}-${var.environment}-api"
 
-  tags = {
-    Name        = var.api_key_name != "" ? var.api_key_name : "${var.project_name}-${var.environment}-api-key"
-    Project     = var.project_name
-    Environment = var.environment
-  }
+  # Rate Limiting
+  throttle_burst_limit = var.api_throttle_burst_limit
+  throttle_rate_limit  = var.api_throttle_rate_limit
+
+  # Logging and Monitoring
+  log_retention_days   = var.api_log_retention_days
+  api_logging_level    = var.api_logging_level
+  enable_data_trace    = var.enable_api_data_trace
+  enable_xray_tracing  = var.enable_xray_tracing
+
+  # Caching
+  enable_caching = var.enable_api_caching
+
+  # API Key Authentication
+  enable_api_key          = var.enable_api_key
+  api_key_name            = var.api_key_name
+  usage_plan_quota_limit  = var.api_usage_plan_quota_limit
+  usage_plan_quota_period = var.api_usage_plan_quota_period
+
+  tags = var.additional_tags
 }
 
-# Usage Plan
-resource "aws_api_gateway_usage_plan" "usage_plan" {
-  count = var.enable_api_gateway && var.enable_api_key ? 1 : 0
+# =============================================================================
+# Lambda Service Integrations
+# =============================================================================
 
-  name        = "${var.project_name}-${var.environment}-usage-plan"
-  description = "Usage plan for ${var.project_name} ${var.environment} API"
+EOF
 
-  api_stages {
-    api_id = aws_api_gateway_rest_api.api[0].id
-    stage  = aws_api_gateway_stage.api[0].stage_name
-  }
+  echo "✅ Created new api-gateway.tf with shared module"
+fi
 
-  # Quota (optional)
-  dynamic "quota_settings" {
-    for_each = var.api_usage_plan_quota_limit > 0 ? [1] : []
-    content {
-      limit  = var.api_usage_plan_quota_limit
-      period = var.api_usage_plan_quota_period
-    }
-  }
+# Check if this service integration already exists
+if grep -q "module \"api_gateway_lambda_${SERVICE_NAME}\"" "$API_GATEWAY_FILE"; then
+  echo "ℹ️  Integration for '${SERVICE_NAME}' already exists in api-gateway.tf"
+else
+  echo "📝 Appending integration for '${SERVICE_NAME}' to api-gateway.tf..."
 
-  tags = {
-    Name        = "${var.project_name}-${var.environment}-usage-plan"
-    Project     = var.project_name
-    Environment = var.environment
-  }
-}
+  cat >> "$API_GATEWAY_FILE" <<EOF
 
-# Associate API Key with Usage Plan
-resource "aws_api_gateway_usage_plan_key" "usage_plan_key" {
-  count = var.enable_api_gateway && var.enable_api_key ? 1 : 0
+# Integration for '${SERVICE_NAME}' Lambda service
+module "api_gateway_lambda_${SERVICE_NAME}" {
+  source = "./modules/api-gateway-lambda-integration"
+  count  = local.api_gateway_enabled ? 1 : 0
 
-  key_id        = aws_api_gateway_api_key.api_key[0].id
-  key_type      = "API_KEY"
-  usage_plan_id = aws_api_gateway_usage_plan.usage_plan[0].id
+  service_name = "${SERVICE_NAME}"
+  path_prefix  = "${PATH_PREFIX}"  # $([ -z "$PATH_PREFIX" ] && echo "Empty = root (/, /*)" || echo "/${PATH_PREFIX}, /${PATH_PREFIX}/*")
+
+  api_id                = module.api_gateway_shared[0].api_id
+  api_root_resource_id  = module.api_gateway_shared[0].root_resource_id
+  api_execution_arn     = module.api_gateway_shared[0].execution_arn
+
+  lambda_function_name  = aws_lambda_function.${SERVICE_NAME}.function_name
+  lambda_invoke_arn     = aws_lambda_function.${SERVICE_NAME}.invoke_arn
+
+  enable_root_method    = ${ENABLE_ROOT}
+  api_key_required      = var.enable_api_key
 }
 EOF
+
+  echo "✅ Added integration for '${SERVICE_NAME}'"
+fi
+
+echo ""
 
 # =============================================================================
 # Create outputs.tf (only if it doesn't exist)

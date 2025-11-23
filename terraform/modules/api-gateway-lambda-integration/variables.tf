@@ -1,6 +1,18 @@
 # =============================================================================
-# API Gateway App Runner Integration Module - Variables
+# API Gateway Lambda Integration Module - Variables
 # =============================================================================
+
+# Service Configuration
+variable "service_name" {
+  description = "Name of the service (used for resource naming)"
+  type        = string
+}
+
+variable "path_prefix" {
+  description = "Path prefix for this service (e.g., 'api', 'worker'). Use empty string for root path."
+  type        = string
+  default     = ""
+}
 
 # API Gateway Configuration
 variable "api_id" {
@@ -13,9 +25,19 @@ variable "api_root_resource_id" {
   type        = string
 }
 
-# App Runner Configuration
-variable "apprunner_service_url" {
-  description = "URL of the App Runner service (without https://)"
+variable "api_execution_arn" {
+  description = "Execution ARN of the API Gateway REST API"
+  type        = string
+}
+
+# Lambda Configuration
+variable "lambda_function_name" {
+  description = "Name of the Lambda function"
+  type        = string
+}
+
+variable "lambda_invoke_arn" {
+  description = "Invoke ARN of the Lambda function"
   type        = string
 }
 
@@ -38,15 +60,10 @@ variable "authorization_type" {
   default     = "NONE"
 }
 
-variable "connection_type" {
-  description = "Integration connection type (INTERNET or VPC_LINK)"
-  type        = string
-  default     = "INTERNET"
-
-  validation {
-    condition     = contains(["INTERNET", "VPC_LINK"], var.connection_type)
-    error_message = "Connection type must be INTERNET or VPC_LINK"
-  }
+variable "request_parameters" {
+  description = "Request parameters for the method"
+  type        = map(bool)
+  default     = {}
 }
 
 variable "integration_timeout_milliseconds" {
@@ -55,8 +72,20 @@ variable "integration_timeout_milliseconds" {
   default     = 29000
 }
 
+variable "permission_statement_id" {
+  description = "Statement ID for Lambda permission"
+  type        = string
+  default     = "AllowAPIGatewayInvoke"
+}
+
 variable "enable_root_method" {
   description = "Enable root path (/) method"
   type        = bool
   default     = true
+}
+
+variable "api_key_required" {
+  description = "Require API Key for requests"
+  type        = bool
+  default     = false
 }

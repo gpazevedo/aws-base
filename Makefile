@@ -43,6 +43,7 @@ help:
 	@echo "  make app-apply-dev           Apply application infrastructure to dev"
 	@echo "  make test-api                Test deployed API endpoints"
 	@echo "  make test-lambda-SERVICE     Test individual Lambda service (e.g., test-lambda-api)"
+	@echo "  make test-apprunner-SERVICE  Test individual AppRunner service (e.g., test-apprunner-web)"
 	@echo ""
 	@echo "Python Code Quality (SERVICE=api by default):"
 	@echo "  make lint                    Check code with Ruff"
@@ -280,7 +281,7 @@ app-apply-prod:
 	cd terraform && terraform apply -var-file=environments/prod.tfvars
 
 # =============================================================================
-# Lambda Service Testing
+# Service Testing
 # =============================================================================
 
 test-api:
@@ -292,6 +293,12 @@ test-api:
 test-lambda-%:
 	@echo "🧪 Testing Lambda service: $*..."
 	./scripts/test-lambda.sh $*
+
+# Test individual AppRunner service
+# Usage: make test-apprunner-web, make test-apprunner-admin, etc.
+test-apprunner-%:
+	@echo "🧪 Testing AppRunner service: $*..."
+	./scripts/test-apprunner.sh $*
 
 # =============================================================================
 # Docker Commands

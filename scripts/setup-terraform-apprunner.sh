@@ -1,22 +1,55 @@
 #!/bin/bash
 # =============================================================================
-# Generate Example Application Terraform Configuration for App Runner
+# Generate App Runner Service Terraform Configuration
 # =============================================================================
-# This script creates example Terraform files for deploying App Runner services
+# This script creates Terraform files for deploying App Runner services
 # in the terraform/ directory with environment-specific configurations
+#
+# Usage: ./scripts/setup-terraform-apprunner.sh [SERVICE_NAME] [ENABLE_API_KEY]
+#
+# Examples:
+#   ./scripts/setup-terraform-apprunner.sh web false         # Create apprunner-web.tf
+#   ./scripts/setup-terraform-apprunner.sh admin true        # Create apprunner-admin.tf
+#   ./scripts/setup-terraform-apprunner.sh                   # Create apprunner-apprunner.tf (default)
 # =============================================================================
 
 set -e
 
 # Parse command line arguments
-ENABLE_API_KEY=${1:-true}  # Default: enabled
+SERVICE_NAME="${1:-apprunner}"  # Default: 'apprunner' for backward compatibility
+ENABLE_API_KEY="${2:-true}"     # Default: enabled
 
 TERRAFORM_DIR="terraform"
 BOOTSTRAP_DIR="bootstrap"
 ENVIRONMENTS=("dev" "test" "prod")
 
-echo "🚀 Setting up example App Runner Terraform configuration..."
+echo "🚀 Setting up App Runner service Terraform configuration..."
 echo ""
+
+# =============================================================================
+# Validate Service Directory
+# =============================================================================
+
+# Check if service directory exists in backend/
+if [ ! -d "backend/${SERVICE_NAME}" ]; then
+  echo "❌ Error: Service directory not found: backend/${SERVICE_NAME}"
+  echo ""
+  echo "Available services in backend/:"
+  ls -d backend/*/ 2>/dev/null | xargs -n1 basename | grep -v "^$" || echo "  None found"
+  echo ""
+  echo "To create a new service, first create the directory:"
+  echo "  mkdir -p backend/${SERVICE_NAME}"
+  echo "  cp -r backend/apprunner/* backend/${SERVICE_NAME}/"
+  echo "  # Then customize backend/${SERVICE_NAME}/main.py for your service"
+  exit 1
+fi
+
+echo "✅ Service directory found: backend/${SERVICE_NAME}"
+echo ""
+
+# =============================================================================
+# Check Bootstrap Configuration
+# =============================================================================
 
 # Check if bootstrap has been initialized
 if [ ! -f "$BOOTSTRAP_DIR/terraform.tfvars" ]; then
@@ -39,6 +72,7 @@ fi
 : ${GITHUB_REPO:="<YOUR-REPO>"}
 
 echo "📋 Configuration:"
+echo "   Service: $SERVICE_NAME"
 echo "   Project: $PROJECT_NAME"
 echo "   Region: $AWS_REGION"
 echo "   GitHub: $GITHUB_ORG/$GITHUB_REPO"
@@ -72,10 +106,13 @@ echo ""
 mkdir -p "$TERRAFORM_DIR/environments"
 
 # =============================================================================
-# Create main.tf
+# Create main.tf (only if it doesn't exist)
 # =============================================================================
-echo "📝 Creating terraform/main.tf..."
-cat > "$TERRAFORM_DIR/main.tf" <<'EOF'
+if [ -f "$TERRAFORM_DIR/main.tf" ]; then
+  echo "⏭️  Skipping terraform/main.tf (already exists)"
+else
+  echo "📝 Creating terraform/main.tf..."
+  cat > "$TERRAFORM_DIR/main.tf" <<'EOF'
 # =============================================================================
 # Application Infrastructure - Main Configuration (App Runner)
 # =============================================================================
@@ -121,12 +158,16 @@ data "aws_ecr_repository" "app" {
   name = var.ecr_repository_name
 }
 EOF
+fi  # End of main.tf creation
 
 # =============================================================================
-# Create variables.tf
+# Create variables.tf (only if it doesn't exist)
 # =============================================================================
-echo "📝 Creating terraform/variables.tf..."
-cat > "$TERRAFORM_DIR/variables.tf" <<'EOF'
+if [ -f "$TERRAFORM_DIR/variables.tf" ]; then
+  echo "⏭️  Skipping terraform/variables.tf (already exists)"
+else
+  echo "📝 Creating terraform/variables.tf..."
+  cat > "$TERRAFORM_DIR/variables.tf" <<'EOF'
 # =============================================================================
 # Application Infrastructure - Variables (App Runner)
 # =============================================================================
@@ -368,32 +409,50 @@ variable "additional_tags" {
   default     = {}
 }
 EOF
+fi  # End of variables.tf creation
 
 # =============================================================================
-# Create apprunner.tf
+# Create apprunner-{service}.tf
 # =============================================================================
-echo "📝 Creating terraform/apprunner.tf..."
-cat > "$TERRAFORM_DIR/apprunner.tf" <<'EOF'
+APPRUNNER_TF_FILE="$TERRAFORM_DIR/apprunner-${SERVICE_NAME}.tf"
+
+# Check if file already exists
+if [ -f "$APPRUNNER_TF_FILE" ]; then
+  echo "⚠️  Warning: ${APPRUNNER_TF_FILE} already exists"
+  read -p "Overwrite? (y/N): " -n 1 -r
+  echo
+  if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+    echo "Skipping apprunner-${SERVICE_NAME}.tf generation"
+    echo "✅ Setup completed (existing files preserved)"
+    exit 0
+  fi
+fi
+
+echo "📝 Creating ${APPRUNNER_TF_FILE}..."
+cat > "$APPRUNNER_TF_FILE" <<'TEMPLATE_EOF'
 # =============================================================================
-# App Runner Service Configuration
+# App Runner Service Configuration: SERVICE_NAME_PLACEHOLDER
+# =============================================================================
+# Generated by scripts/setup-terraform-apprunner.sh
+# This file defines the App Runner service for the SERVICE_NAME_PLACEHOLDER service
 # =============================================================================
 
 # Get App Runner IAM roles from bootstrap
-data "aws_iam_role" "apprunner_access" {
-  name = "${var.project_name}-apprunner-access"
+data "aws_iam_role" "apprunner_access_SERVICE_NAME_PLACEHOLDER" {
+  name = "\${var.project_name}-apprunner-access"
 }
 
-data "aws_iam_role" "apprunner_instance" {
-  name = "${var.project_name}-apprunner-instance"
+data "aws_iam_role" "apprunner_instance_SERVICE_NAME_PLACEHOLDER" {
+  name = "\${var.project_name}-apprunner-instance"
 }
 
 # App Runner Service
-resource "aws_apprunner_service" "api" {
-  service_name = "${var.project_name}-${var.environment}-api"
+resource "aws_apprunner_service" "SERVICE_NAME_PLACEHOLDER" {
+  service_name = "\${var.project_name}-\${var.environment}-SERVICE_NAME_PLACEHOLDER"
 
   source_configuration {
     image_repository {
-      image_identifier      = "${data.aws_ecr_repository.app.repository_url}:api-${var.environment}-latest"
+      image_identifier      = "\${data.aws_ecr_repository.app.repository_url}:SERVICE_NAME_PLACEHOLDER-\${var.environment}-latest"
       image_repository_type = "ECR"
 
       image_configuration {
@@ -402,13 +461,14 @@ resource "aws_apprunner_service" "api" {
         runtime_environment_variables = {
           ENVIRONMENT  = var.environment
           PROJECT_NAME = var.project_name
+          SERVICE_NAME = "SERVICE_NAME_PLACEHOLDER"
           LOG_LEVEL    = var.environment == "prod" ? "INFO" : "DEBUG"
         }
       }
     }
 
     authentication_configuration {
-      access_role_arn = data.aws_iam_role.apprunner_access.arn
+      access_role_arn = data.aws_iam_role.apprunner_access_SERVICE_NAME_PLACEHOLDER.arn
     }
 
     auto_deployments_enabled = false  # Control deployments via GitHub Actions
@@ -417,7 +477,7 @@ resource "aws_apprunner_service" "api" {
   instance_configuration {
     cpu               = var.apprunner_cpu
     memory            = var.apprunner_memory
-    instance_role_arn = data.aws_iam_role.apprunner_instance.arn
+    instance_role_arn = data.aws_iam_role.apprunner_instance_SERVICE_NAME_PLACEHOLDER.arn
   }
 
   health_check_configuration {
@@ -429,15 +489,17 @@ resource "aws_apprunner_service" "api" {
     unhealthy_threshold = var.health_check_unhealthy_threshold
   }
 
-  auto_scaling_configuration_arn = aws_apprunner_auto_scaling_configuration_version.api.arn
+  auto_scaling_configuration_arn = aws_apprunner_auto_scaling_configuration_version.SERVICE_NAME_PLACEHOLDER.arn
 
   tags = {
-    Name        = "${var.project_name}-${var.environment}-api"
+    Name        = "\${var.project_name}-\${var.environment}-SERVICE_NAME_PLACEHOLDER"
+    Service     = "SERVICE_NAME_PLACEHOLDER"
     Description = "Main API App Runner service"
   }
 
   # Note: Container image must exist in ECR before first apply
-  # Build and push via GitHub Actions or manually
+  # Build and push with:
+  #   ./scripts/docker-push.sh \${var.environment} SERVICE_NAME_PLACEHOLDER Dockerfile.apprunner
   lifecycle {
     ignore_changes = [
       source_configuration[0].image_repository[0].image_identifier  # Allow image updates without Terraform
@@ -446,24 +508,105 @@ resource "aws_apprunner_service" "api" {
 }
 
 # Auto Scaling Configuration
-resource "aws_apprunner_auto_scaling_configuration_version" "api" {
-  auto_scaling_configuration_name = "${var.project_name}-${var.environment}-autoscaling"
+resource "aws_apprunner_auto_scaling_configuration_version" "SERVICE_NAME_PLACEHOLDER" {
+  auto_scaling_configuration_name = "\${var.project_name}-\${var.environment}-SERVICE_NAME_PLACEHOLDER-autoscaling"
 
   min_size         = var.apprunner_min_instances
   max_size         = var.apprunner_max_instances
   max_concurrency  = var.apprunner_max_concurrency
 
   tags = {
-    Name = "${var.project_name}-${var.environment}-autoscaling"
+    Name    = "\${var.project_name}-\${var.environment}-SERVICE_NAME_PLACEHOLDER-autoscaling"
+    Service = "SERVICE_NAME_PLACEHOLDER"
   }
+}
+
+# =============================================================================
+# Outputs for SERVICE_NAME_PLACEHOLDER Service
+# =============================================================================
+
+output "apprunner_SERVICE_NAME_PLACEHOLDER_url" {
+  description = "App Runner service URL for SERVICE_NAME_PLACEHOLDER"
+  value       = "https://\${aws_apprunner_service.SERVICE_NAME_PLACEHOLDER.service_url}"
+}
+
+output "apprunner_SERVICE_NAME_PLACEHOLDER_arn" {
+  description = "ARN of the SERVICE_NAME_PLACEHOLDER App Runner service"
+  value       = aws_apprunner_service.SERVICE_NAME_PLACEHOLDER.arn
+}
+
+output "apprunner_SERVICE_NAME_PLACEHOLDER_status" {
+  description = "Status of the SERVICE_NAME_PLACEHOLDER App Runner service"
+  value       = aws_apprunner_service.SERVICE_NAME_PLACEHOLDER.status
+}
+
+output "apprunner_SERVICE_NAME_PLACEHOLDER_service_id" {
+  description = "Service ID of the SERVICE_NAME_PLACEHOLDER App Runner service"
+  value       = aws_apprunner_service.SERVICE_NAME_PLACEHOLDER.service_id
+}
+TEMPLATE_EOF
+
+# Replace placeholders with actual service name
+sed -i "s/SERVICE_NAME_PLACEHOLDER/${SERVICE_NAME}/g" "$APPRUNNER_TF_FILE"
+
+# =============================================================================
+# Optional API Gateway Integration for AppRunner
+# =============================================================================
+# If api-gateway.tf exists (from Lambda services), offer to add AppRunner integration
+
+API_GATEWAY_FILE="$TERRAFORM_DIR/api-gateway.tf"
+
+if [ -f "$API_GATEWAY_FILE" ]; then
+  # API Gateway exists, offer to add AppRunner integration
+  echo ""
+  echo "📌 API Gateway configuration detected"
+  read -p "Add AppRunner integration to API Gateway? (y/N): " -n 1 -r
+  echo
+
+  if [[ $REPLY =~ ^[Yy]$ ]]; then
+    PATH_PREFIX="${SERVICE_NAME}"  # AppRunner always uses path-based
+
+    if ! grep -q "module \"api_gateway_apprunner_${SERVICE_NAME}\"" "$API_GATEWAY_FILE"; then
+      echo "📝 Appending AppRunner integration for '${SERVICE_NAME}'..."
+
+      cat >> "$API_GATEWAY_FILE" <<EOF
+
+# Integration for '${SERVICE_NAME}' AppRunner service
+module "api_gateway_apprunner_${SERVICE_NAME}" {
+  source = "./modules/api-gateway-apprunner-integration"
+  count  = local.api_gateway_enabled ? 1 : 0
+
+  service_name          = "${SERVICE_NAME}"
+  path_prefix           = "${PATH_PREFIX}"  # /${PATH_PREFIX}, /${PATH_PREFIX}/*
+
+  api_id                = module.api_gateway_shared[0].api_id
+  api_root_resource_id  = module.api_gateway_shared[0].root_resource_id
+  api_execution_arn     = module.api_gateway_shared[0].execution_arn
+
+  apprunner_service_url = aws_apprunner_service.${SERVICE_NAME}.service_url
+
+  enable_root_method    = false
+  api_key_required      = var.enable_api_key
 }
 EOF
 
-# =============================================================================
-# Create api-gateway.tf
-# =============================================================================
-echo "📝 Creating terraform/api-gateway.tf..."
-cat > "$TERRAFORM_DIR/api-gateway.tf" <<'EOF'
+      echo "✅ Added AppRunner integration for '${SERVICE_NAME}'"
+    else
+      echo "ℹ️  Integration already exists"
+    fi
+  else
+    echo "⏭️  Skipped AppRunner API Gateway integration"
+  fi
+else
+  echo "ℹ️  No API Gateway configuration found (api-gateway.tf doesn't exist)"
+  echo "   AppRunner service will be accessed directly via its service URL"
+fi
+
+echo ""
+
+# Skip the old api-gateway.tf creation
+if false; then
+cat > "$TERRAFORM_DIR/api-gateway.tf.disabled" <<'EOF'
 # =============================================================================
 # API Gateway Configuration (Optional)
 # =============================================================================
@@ -562,12 +705,17 @@ resource "null_resource" "api_gateway_redeploy" {
   }
 }
 EOF
+fi  # End of disabled api-gateway.tf creation
 
 # =============================================================================
-# Create outputs.tf
+# Skip outputs.tf creation (outputs are now in apprunner-<service>.tf)
 # =============================================================================
-echo "📝 Creating terraform/outputs.tf..."
-cat > "$TERRAFORM_DIR/outputs.tf" <<'EOF'
+# Outputs are now included in each apprunner-<service>.tf file
+echo "⏭️  Skipping terraform/outputs.tf (outputs included in service files)..."
+echo ""
+
+if false; then
+cat > "$TERRAFORM_DIR/outputs.tf.disabled" <<'EOF'
 # =============================================================================
 # Application Infrastructure - Outputs (App Runner)
 # =============================================================================
@@ -656,11 +804,17 @@ output "primary_endpoint" {
   )
 }
 EOF
+fi  # End of disabled outputs.tf creation
 
 # =============================================================================
-# Create environment-specific tfvars files
+# Create environment-specific tfvars files (only if they don't exist)
 # =============================================================================
 for ENV in "${ENVIRONMENTS[@]}"; do
+  if [ -f "$TERRAFORM_DIR/environments/${ENV}.tfvars" ]; then
+    echo "⏭️  Skipping terraform/environments/${ENV}.tfvars (already exists)"
+    continue
+  fi
+
   echo "📝 Creating terraform/environments/${ENV}.tfvars..."
 
   cat > "$TERRAFORM_DIR/environments/${ENV}.tfvars" <<EOF

@@ -14,7 +14,7 @@
 # =============================================================================
 
 # Service folder argument (defaults to 'api')
-ARG SERVICE_FOLDER=api
+ARG SERVICE_FOLDER=apprunner
 
 # Multi-arch support - TARGETPLATFORM is automatically set by Docker BuildKit
 # When using --platform=linux/arm64, TARGETPLATFORM=linux/arm64
@@ -24,7 +24,7 @@ ARG TARGETPLATFORM
 FROM --platform=$TARGETPLATFORM python:3.13-slim
 
 # Re-declare ARG after FROM (Docker requirement)
-ARG SERVICE_FOLDER=api
+ARG SERVICE_FOLDER=apprunner
 
 # Install uv - fast Python package installer
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
@@ -38,16 +38,20 @@ WORKDIR /app
 #     gcc \
 #     && rm -rf /var/lib/apt/lists/*
 
-# Copy dependency files from service folder
-COPY ${SERVICE_FOLDER}/pyproject.toml ${SERVICE_FOLDER}/uv.lock* ./
+# Set environment variables for uv
+ENV UV_SYSTEM_PYTHON=1
+ENV UV_COMPILE_BYTECODE=1
 
-# Install dependencies using uv
-# --frozen: Use exact versions from uv.lock
-# --no-dev: Skip development dependencies
-RUN uv sync --frozen --no-dev
+# Copy pyproject.toml
+COPY ${SERVICE_FOLDER}/pyproject.toml ./
 
-# Copy all Python files from service folder (will exclude test files in next step)
-COPY ${SERVICE_FOLDER}/*.py ./
+# Generate requirements from pyproject.toml and install
+RUN uv pip compile pyproject.toml -o requirements.txt && \
+    uv pip install --no-cache -r requirements.txt && \
+    rm requirements.txt
+
+# Copy all application files
+COPY ${SERVICE_FOLDER}/ ./
 
 # Remove test files
 RUN rm -f test_*.py
@@ -60,5 +64,5 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')" || exit 1
 
 # Run application with uvicorn
-# Adjust based on your framework (FastAPI, Flask, etc.)
-CMD ["uv", "run", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
+# Dependencies are installed in system Python, so we can run directly
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]

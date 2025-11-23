@@ -33,20 +33,22 @@ COPY --from=uv /uv /usr/local/bin/uv
 # Set working directory
 WORKDIR ${LAMBDA_TASK_ROOT}
 
-# Copy dependency files from service folder
-COPY ${SERVICE_FOLDER}/pyproject.toml ${SERVICE_FOLDER}/uv.lock* ./
-
-# Install dependencies using uv
-# UV_SYSTEM_PYTHON=1: Install into system Python (required for Lambda)
-# --frozen: Use exact versions from uv.lock
-# --no-dev: Skip development dependencies
-# --no-install-project: Only install dependencies, not the project itself
-# --no-cache: Don't cache downloads (reduces image size)
+# Set environment variables for uv
 ENV UV_SYSTEM_PYTHON=1
-RUN uv sync --frozen --no-dev --no-install-project --no-cache
+ENV UV_COMPILE_BYTECODE=1
 
-# Copy all Python files from service folder (will exclude test files in next step)
-COPY ${SERVICE_FOLDER}/*.py ./
+# Copy pyproject.toml
+COPY ${SERVICE_FOLDER}/pyproject.toml ./
+
+# Generate requirements from pyproject.toml and install
+# uv pip compile reads pyproject.toml and creates requirements.txt
+# Then install from that requirements file
+RUN uv pip compile pyproject.toml -o requirements.txt && \
+    uv pip install --no-cache -r requirements.txt && \
+    rm requirements.txt
+
+# Copy all application files
+COPY ${SERVICE_FOLDER}/ ./
 
 # Remove test files
 RUN rm -f test_*.py

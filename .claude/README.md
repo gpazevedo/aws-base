@@ -37,19 +37,35 @@ Use these commands by typing `/command-name` in your Claude Code chat:
 This is an AWS infrastructure project with:
 - **Compute Options**: Lambda (serverless), App Runner (containers), EKS (Kubernetes)
 - **Python 3.13** with `uv` for dependency management
-- **Multi-service backend** architecture
-- **API Gateway** as the standard entry point
+- **Multi-service architecture** with path-based routing
+- **API Gateway** as single entry point for all services
 - **GitHub Actions** for CI/CD via OIDC
-- **Multi-architecture Docker** builds (arm64 for production, amd64 for local testing)
+- **Multi-architecture Docker** builds (arm64 for Lambda/EKS, amd64 for App Runner)
+
+### Current Architecture (Multi-Service)
+
+**Deployed Services:**
+
+- Lambda 'api' service → Root path: `/`, `/health`, `/greet`
+- AppRunner 'apprunner' service → Path: `/apprunner/*`
+
+**Path-Based Routing:**
+
+- API Gateway: `https://10p6i9glng.execute-api.us-east-1.amazonaws.com/dev`
+- All services accessible through single gateway
+- First Lambda service handles root, others use path prefixes
 
 ## Documentation
 
 Comprehensive documentation is available in the `docs/` directory:
-- [Terraform Bootstrap Guide](../docs/TERRAFORM-BOOTSTRAP.md)
-- [API Endpoints](../docs/API-ENDPOINTS.md)
-- [Docker Multi-Architecture](../docs/DOCKER-MULTIARCH.md)
-- [Pre-commit Hooks](../docs/PRE-COMMIT.md)
-- [Scripts Documentation](../docs/SCRIPTS.md)
+
+- [Multi-Service Architecture](../docs/MULTI-SERVICE-ARCHITECTURE.md) - Path-based routing guide
+- [Terraform Bootstrap Guide](../docs/TERRAFORM-BOOTSTRAP.md) - Complete setup walkthrough
+- [API Endpoints](../docs/API-ENDPOINTS.md) - API documentation with testing
+- [Docker Multi-Architecture](../docs/DOCKER-MULTIARCH.md) - Multi-arch builds
+- [Deployment Status](../DEPLOYMENT-STATUS.md) - Current deployment info
+- [Recent Changes](../CHANGES.md) - Implementation summary
+- [Documentation Index](../docs/README.md) - All documentation
 
 ## Configuration Files
 

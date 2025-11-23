@@ -330,10 +330,11 @@ make docker-push-dev SERVICE=apprunner
 Images tagged: `{service}-{env}-{datetime}-{sha}` (e.g., `apprunner-dev-2025-11-22-abc1234`)
 
 **Service-to-Service Communication:**
-- API service can call AppRunner service via `/apprunner-health`
-- AppRunner service can call API service via `/api-health`
+
+- Lambda services accessed via API Gateway root paths: `/health`, `/api-health`
+- AppRunner services accessed via path prefix: `/apprunner/health`, `/web/health`, etc.
 - Both services use `httpx` for async HTTP communication
-- Configure service URLs via environment variables
+- Configure service URLs via environment variables or API Gateway URL
 
 ---
 

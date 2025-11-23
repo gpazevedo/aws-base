@@ -17,6 +17,12 @@ variable "api_name" {
   type        = string
 }
 
+variable "integration_ids" {
+  description = "List of integration IDs to trigger redeployment"
+  type        = list(string)
+  default     = []
+}
+
 # =============================================================================
 # Rate Limiting / Throttling
 # =============================================================================

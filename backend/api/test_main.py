@@ -97,6 +97,25 @@ def test_error_endpoint() -> None:
 
 
 # =============================================================================
+# Service Integration Tests
+# =============================================================================
+
+
+def test_apprunner_health_endpoint_structure() -> None:
+    """
+    Test the AppRunner health endpoint structure.
+
+    Note: This endpoint requires a running AppRunner service to fully test.
+    For unit tests, we verify the endpoint exists and returns proper error
+    when the AppRunner service is not available.
+    """
+    # Without a running AppRunner service, this will return 503
+    response = client.get("/apprunner-health")
+    # The endpoint should be accessible (not 404)
+    assert response.status_code in [200, 503]
+
+
+# =============================================================================
 # Documentation Tests
 # =============================================================================
 
@@ -138,3 +157,4 @@ def test_404_not_found() -> None:
     assert "error" in data
     assert "available_endpoints" in data
     assert "/" in data["available_endpoints"]
+    assert "/apprunner-health" in data["available_endpoints"]

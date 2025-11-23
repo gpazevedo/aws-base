@@ -60,8 +60,8 @@ git clone git@github.com:gpazevedo/aws-base-python.git <YOUR-PROJECT>
 cd <YOUR-PROJECT>
 git remote remove origin
 
-# Test Python setup
-cd backend/api && uv sync && cd ../..
+# Test Python setup (install dependencies with test extras)
+cd backend/api && uv sync --extra test && cd ../..
 make test
 ```
 
@@ -110,6 +110,54 @@ make test-api
 > **🔑 API Key:** Disabled by default for easier testing. Enable in production: `enable_api_key = true` in `terraform/environments/prod.tfvars`
 >
 > **📖 All endpoints:** [API-ENDPOINTS.md](docs/API-ENDPOINTS.md)
+
+### 5a. Deploy AppRunner Service (Optional)
+
+Deploy the AppRunner service for long-running processes and service-to-service communication:
+
+```bash
+# Build & push AppRunner service
+./scripts/docker-push.sh dev apprunner Dockerfile.apprunner
+
+# Update terraform configuration to enable AppRunner
+# Edit terraform/environments/dev.tfvars and add:
+# enable_apprunner = true
+# apprunner_service_url = "<API_GATEWAY_URL>"  # From step 5
+
+# Deploy AppRunner infrastructure
+make app-apply-dev
+```
+
+**Test bidirectional service communication:**
+
+```bash
+# Get AppRunner endpoint (if deployed separately)
+APPRUNNER_URL=$(cd terraform && terraform output -raw apprunner_endpoint 2>/dev/null || echo "http://localhost:8080")
+
+# Test API → AppRunner communication
+curl $PRIMARY_URL/apprunner-health
+
+# Test AppRunner → API communication (if AppRunner is deployed)
+curl $APPRUNNER_URL/api-health
+
+# Local testing (run both services locally)
+# Terminal 1: API service
+cd backend/api && uv run python main.py
+
+# Terminal 2: AppRunner service
+cd backend/apprunner && uv run python main.py
+
+# Terminal 3: Test both directions
+curl http://localhost:8000/apprunner-health  # API → AppRunner
+curl http://localhost:8080/api-health        # AppRunner → API
+```
+
+**Available service endpoints:**
+- **API Service** (`/apprunner-health`) - Calls AppRunner service health endpoint
+- **AppRunner Service** (`/api-health`) - Calls API service health endpoint
+- Both return response time, status code, and full service response
+
+> **📖 Service details:** See [backend/apprunner/README.md](backend/apprunner/README.md) for complete AppRunner service documentation
 
 ### 6. GitHub Actions (Optional)
 
@@ -182,10 +230,15 @@ aws-base/
 │   ├── environments/    # dev.tfvars, test.tfvars, prod.tfvars
 │   └── resources/       # Lambda, API Gateway, etc.
 ├── backend/             # Python services
-│   ├── api/            # FastAPI service
+│   ├── api/            # FastAPI API service (Lambda/API Gateway)
 │   │   ├── main.py
 │   │   └── pyproject.toml
-│   └── Dockerfile.lambda
+│   ├── apprunner/      # FastAPI AppRunner service
+│   │   ├── main.py
+│   │   └── pyproject.toml
+│   ├── Dockerfile.lambda
+│   ├── Dockerfile.apprunner
+│   └── Dockerfile.eks
 ├── scripts/             # Automation scripts
 ├── docs/                # Documentation
 └── k8s/                 # Kubernetes manifests (if using EKS)
@@ -201,18 +254,29 @@ Organize services in `backend/`:
 
 ```bash
 backend/
-├── api/          # API service
+├── api/          # API service (Lambda/API Gateway)
+├── apprunner/    # AppRunner service (long-running web app)
 ├── worker/       # Background worker
 └── scheduler/    # Scheduled jobs
 ```
 
 Build & deploy individually:
 ```bash
-make docker-build SERVICE=worker
-make docker-push-dev SERVICE=worker
+# Build and push a specific service
+make docker-build SERVICE=apprunner
+make docker-push-dev SERVICE=apprunner
+
+# Or use the docker-push script directly
+./scripts/docker-push.sh dev apprunner Dockerfile.apprunner
 ```
 
-Images tagged: `{service}-{env}-{datetime}-{sha}` (e.g., `worker-dev-2025-11-22-abc1234`)
+Images tagged: `{service}-{env}-{datetime}-{sha}` (e.g., `apprunner-dev-2025-11-22-abc1234`)
+
+**Service-to-Service Communication:**
+- API service can call AppRunner service via `/apprunner-health`
+- AppRunner service can call API service via `/api-health`
+- Both services use `httpx` for async HTTP communication
+- Configure service URLs via environment variables
 
 ---
 

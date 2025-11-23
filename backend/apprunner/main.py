@@ -1,4 +1,4 @@
-"""Main FastAPI application with health checks and example endpoints."""
+"""AppRunner FastAPI service that calls the API service health endpoint."""
 
 import time
 from datetime import datetime, timezone
@@ -7,7 +7,6 @@ from typing import Any
 import httpx
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import JSONResponse
-from mangum import Mangum
 from pydantic import BaseModel
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -22,15 +21,16 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-    # AppRunner service URL (optional - for service-to-service communication)
-    apprunner_service_url: str = "http://localhost:8080"
+    # API service URL (must be set via environment variable)
+    api_service_url: str = "http://localhost:8000"
 
     # Service configuration
-    service_name: str = "api"
+    service_name: str = "apprunner"
     service_version: str = "0.1.0"
 
     # HTTP client settings
     http_timeout: float = 30.0
+    http_max_retries: int = 3
 
 
 settings = Settings()
@@ -41,9 +41,9 @@ settings = Settings()
 # =============================================================================
 
 app = FastAPI(
-    title="AWS Base Python API",
-    description="Production-ready FastAPI template for AWS Lambda",
-    version="0.1.0",
+    title="AWS AppRunner Service",
+    description="AppRunner service that calls the API service health endpoint",
+    version=settings.service_version,
     docs_url="/docs",  # Swagger UI
     redoc_url="/redoc",  # ReDoc
     openapi_url="/openapi.json",  # OpenAPI schema
@@ -51,6 +51,7 @@ app = FastAPI(
 
 # Track application startup time for uptime calculation
 START_TIME = time.time()
+
 
 # =============================================================================
 # Pydantic Models
@@ -64,6 +65,21 @@ class HealthResponse(BaseModel):
     timestamp: str
     uptime_seconds: float
     version: str
+    service_name: str
+
+
+class ApiHealthResponse(BaseModel):
+    """Response from calling API service health endpoint."""
+
+    api_response: dict[str, Any]
+    status_code: int
+    response_time_ms: float
+
+
+class StatusResponse(BaseModel):
+    """Simple status response."""
+
+    status: str
 
 
 class GreetingRequest(BaseModel):
@@ -79,18 +95,11 @@ class GreetingResponse(BaseModel):
     version: str
 
 
-class StatusResponse(BaseModel):
-    """Simple status response."""
+class ErrorResponse(BaseModel):
+    """Error response model."""
 
-    status: str
-
-
-class AppRunnerHealthResponse(BaseModel):
-    """Response from calling AppRunner service health endpoint."""
-
-    apprunner_response: dict[str, Any]
-    status_code: int
-    response_time_ms: float
+    error: str
+    detail: str | None = None
 
 
 # =============================================================================
@@ -108,6 +117,7 @@ async def health_check() -> HealthResponse:
     - Server timestamp
     - Uptime in seconds
     - Application version
+    - Service name
 
     Returns:
         HealthResponse: Health check data
@@ -117,7 +127,8 @@ async def health_check() -> HealthResponse:
         status="healthy",
         timestamp=datetime.now(timezone.utc).isoformat(),
         uptime_seconds=round(uptime, 2),
-        version="0.1.0",
+        version=settings.service_version,
+        service_name=settings.service_name,
     )
 
 
@@ -141,18 +152,79 @@ async def readiness_probe() -> StatusResponse:
     Kubernetes-style readiness probe.
 
     Indicates whether the application is ready to receive traffic.
-    Can be extended to check database connections, external services, etc.
+    Checks if we can reach the API service.
 
     Returns:
         StatusResponse: Simple status indicating the app is ready
+
+    Raises:
+        HTTPException: If the API service is unreachable
     """
-    # Add your readiness checks here (database, cache, etc.)
-    # For now, always return ready
-    return StatusResponse(status="ready")
+    # Check if we can reach the API service
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get(f"{settings.api_service_url}/health")
+            if response.status_code == 200:
+                return StatusResponse(status="ready")
+            else:
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"API service returned status {response.status_code}",
+                )
+    except httpx.RequestError as e:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Cannot reach API service: {str(e)}",
+        )
 
 
 # =============================================================================
-# API Endpoints
+# API Service Integration Endpoints
+# =============================================================================
+
+
+@app.get("/api-health", response_model=ApiHealthResponse, tags=["API Integration"])
+async def get_api_health() -> ApiHealthResponse:
+    """
+    Call the API service health endpoint and return the response.
+
+    This endpoint demonstrates service-to-service communication by calling
+    the API service's /health endpoint and returning what it received.
+
+    Returns:
+        ApiHealthResponse: The response from the API service including
+                          status code, response time, and the full response body
+
+    Raises:
+        HTTPException: If the API service is unreachable or returns an error
+    """
+    start_time = time.time()
+
+    try:
+        async with httpx.AsyncClient(timeout=settings.http_timeout) as client:
+            response = await client.get(f"{settings.api_service_url}/health")
+            response_time = (time.time() - start_time) * 1000  # Convert to ms
+
+            # Return the response regardless of status code
+            return ApiHealthResponse(
+                api_response=response.json(),
+                status_code=response.status_code,
+                response_time_ms=round(response_time, 2),
+            )
+    except httpx.RequestError as e:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Failed to reach API service: {str(e)}",
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Unexpected error calling API service: {str(e)}",
+        )
+
+
+# =============================================================================
+# General API Endpoints
 # =============================================================================
 
 
@@ -164,7 +236,10 @@ async def root() -> GreetingResponse:
     Returns:
         GreetingResponse: Welcome message with version
     """
-    return GreetingResponse(message="Hello, World!", version="0.1.0")
+    return GreetingResponse(
+        message=f"Hello from {settings.service_name}!",
+        version=settings.service_version,
+    )
 
 
 @app.get("/greet", response_model=GreetingResponse, tags=["General"])
@@ -182,7 +257,10 @@ async def greet(name: str = Query(default="World", description="Name to greet"))
         GET /greet?name=Alice
         Response: {"message": "Hello, Alice!", "version": "0.1.0"}
     """
-    return GreetingResponse(message=f"Hello, {name}!", version="0.1.0")
+    return GreetingResponse(
+        message=f"Hello, {name}! (from {settings.service_name})",
+        version=settings.service_version,
+    )
 
 
 @app.post("/greet", response_model=GreetingResponse, tags=["General"])
@@ -201,7 +279,10 @@ async def greet_post(request: GreetingRequest) -> GreetingResponse:
         Body: {"name": "Alice"}
         Response: {"message": "Hello, Alice!", "version": "0.1.0"}
     """
-    return GreetingResponse(message=f"Hello, {request.name}!", version="0.1.0")
+    return GreetingResponse(
+        message=f"Hello, {request.name}! (from {settings.service_name})",
+        version=settings.service_version,
+    )
 
 
 @app.get("/error", tags=["General"])
@@ -212,52 +293,7 @@ async def trigger_error() -> None:
     Raises:
         HTTPException: Always raises a 500 error for testing
     """
-    raise HTTPException(status_code=500, detail="This is a test error")
-
-
-# =============================================================================
-# AppRunner Service Integration Endpoints
-# =============================================================================
-
-
-@app.get("/apprunner-health", response_model=AppRunnerHealthResponse, tags=["Service Integration"])
-async def get_apprunner_health() -> AppRunnerHealthResponse:
-    """
-    Call the AppRunner service health endpoint and return the response.
-
-    This endpoint demonstrates service-to-service communication by calling
-    the AppRunner service's /health endpoint and returning what it received.
-
-    Returns:
-        AppRunnerHealthResponse: The response from the AppRunner service including
-                                status code, response time, and the full response body
-
-    Raises:
-        HTTPException: If the AppRunner service is unreachable or returns an error
-    """
-    start_time = time.time()
-
-    try:
-        async with httpx.AsyncClient(timeout=settings.http_timeout) as client:
-            response = await client.get(f"{settings.apprunner_service_url}/health")
-            response_time = (time.time() - start_time) * 1000  # Convert to ms
-
-            # Return the response regardless of status code
-            return AppRunnerHealthResponse(
-                apprunner_response=response.json(),
-                status_code=response.status_code,
-                response_time_ms=round(response_time, 2),
-            )
-    except httpx.RequestError as e:
-        raise HTTPException(
-            status_code=503,
-            detail=f"Failed to reach AppRunner service: {str(e)}",
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Unexpected error calling AppRunner service: {str(e)}",
-        )
+    raise HTTPException(status_code=500, detail="This is a test error from AppRunner service")
 
 
 # =============================================================================
@@ -278,8 +314,8 @@ async def not_found_handler(request: Any, exc: Any) -> JSONResponse:
                 "/health",
                 "/liveness",
                 "/readiness",
+                "/api-health",
                 "/greet",
-                "/apprunner-health",
                 "/docs",
                 "/redoc",
                 "/openapi.json",
@@ -289,18 +325,15 @@ async def not_found_handler(request: Any, exc: Any) -> JSONResponse:
 
 
 # =============================================================================
-# Lambda Handler
-# =============================================================================
-
-# Mangum adapter to run FastAPI on AWS Lambda
-handler = Mangum(app, lifespan="off")
-
-
-# =============================================================================
 # Local Development Server
 # =============================================================================
 
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=8080,
+        log_level="info",
+    )

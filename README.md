@@ -83,9 +83,11 @@ make bootstrap-create bootstrap-init bootstrap-apply
 
 ```bash
 make setup-terraform-backend
-API_KEY=false make setup-terraform-lambda  # Disable API Key for quick start
 
-# Build & push Docker image
+# Create Lambda service infrastructure for 'api' service
+./scripts/setup-terraform-lambda.sh api false  # Disable API Key for quick start
+
+# Build & push Docker image for 'api' service
 ./scripts/docker-push.sh dev api Dockerfile.lambda
 
 # Deploy infrastructure

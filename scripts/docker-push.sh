@@ -42,32 +42,50 @@ echo ""
 HOST_ARCH=$(uname -m)
 
 # =============================================================================
-# IMPORTANT: ECR images MUST always be arm64 for AWS Graviton2
-# This is hardcoded and cannot be overridden to ensure consistency across:
-# - AWS Lambda (Graviton2 processors)
-# - AWS App Runner (arm64 instances)
-# - AWS EKS (Graviton2 nodes)
+# IMPORTANT: Architecture selection based on deployment target
+# - AWS App Runner: amd64 (x86_64 instances)
+# - AWS Lambda: arm64 (Graviton2 processors)
+# - AWS EKS: arm64 (Graviton2 nodes)
 #
-# DO NOT modify this value. Local testing with other architectures should
-# use 'make docker-build ARCH=amd64' which does NOT push to ECR.
+# Architecture is automatically determined from the Dockerfile name.
+# DO NOT modify this logic unless AWS services change their architectures.
 # =============================================================================
-TARGET_ARCH="arm64"  # REQUIRED: Always build for arm64 (AWS Graviton2)
+if [[ "$DOCKERFILE" == *"apprunner"* ]]; then
+  TARGET_ARCH="amd64"  # App Runner uses x86_64
+else
+  TARGET_ARCH="arm64"  # Lambda and EKS use Graviton2 (arm64)
+fi
 
 echo -e "${BLUE}🖥️  Detecting host architecture...${NC}"
 echo "   Host CPU: ${HOST_ARCH}"
-echo "   Target: ${TARGET_ARCH} (AWS Graviton2)"
+if [[ "$TARGET_ARCH" == "amd64" ]]; then
+  echo "   Target: ${TARGET_ARCH} (AWS App Runner x86_64)"
+else
+  echo "   Target: ${TARGET_ARCH} (AWS Graviton2)"
+fi
 echo ""
 
 # Check if we need QEMU (cross-platform build)
 NEED_QEMU=false
-if [[ "$HOST_ARCH" == "x86_64" ]] || [[ "$HOST_ARCH" == "amd64" ]]; then
+
+# Normalize HOST_ARCH for comparison
+if [[ "$HOST_ARCH" == "x86_64" ]]; then
+  HOST_ARCH_NORMALIZED="amd64"
+elif [[ "$HOST_ARCH" == "aarch64" ]]; then
+  HOST_ARCH_NORMALIZED="arm64"
+else
+  HOST_ARCH_NORMALIZED="$HOST_ARCH"
+fi
+
+# Check if cross-platform build is needed
+if [[ "$HOST_ARCH_NORMALIZED" != "$TARGET_ARCH" ]]; then
   NEED_QEMU=true
-  echo -e "${YELLOW}⚠️  Cross-platform build detected (x86_64 → arm64)${NC}"
-  echo "   QEMU emulation required for arm64 builds"
+  echo -e "${YELLOW}⚠️  Cross-platform build detected (${HOST_ARCH_NORMALIZED} → ${TARGET_ARCH})${NC}"
+  echo "   QEMU emulation required for ${TARGET_ARCH} builds"
   echo ""
 
   # Check if QEMU is already installed
-  if docker buildx inspect --bootstrap 2>/dev/null | grep -q "linux/arm64"; then
+  if docker buildx inspect --bootstrap 2>/dev/null | grep -q "linux/${TARGET_ARCH}"; then
     echo -e "${GREEN}✅ QEMU already installed and configured${NC}"
   else
     echo -e "${YELLOW}📦 Installing QEMU for cross-platform builds...${NC}"
@@ -87,12 +105,8 @@ if [[ "$HOST_ARCH" == "x86_64" ]] || [[ "$HOST_ARCH" == "amd64" ]]; then
     fi
   fi
   echo ""
-elif [[ "$HOST_ARCH" == "aarch64" ]] || [[ "$HOST_ARCH" == "arm64" ]]; then
-  echo -e "${GREEN}✅ Native arm64 build - no emulation needed${NC}"
-  echo ""
 else
-  echo -e "${YELLOW}⚠️  Unknown architecture: ${HOST_ARCH}${NC}"
-  echo "   Attempting build anyway..."
+  echo -e "${GREEN}✅ Native ${TARGET_ARCH} build - no emulation needed${NC}"
   echo ""
 fi
 

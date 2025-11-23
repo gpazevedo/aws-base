@@ -577,7 +577,7 @@ aws ecr describe-images --repository-name $ECR_REPO \
 
 ## Related Documentation
 
-- [DOCKER-ARM64-GUARANTEE.md](DOCKER-ARM64-GUARANTEE.md) - Architecture enforcement
+- [DOCKER-ARCHITECTURE.md](DOCKER-ARCHITECTURE.md) - Architecture enforcement
 - [TROUBLESHOOTING-API-GATEWAY.md](TROUBLESHOOTING-API-GATEWAY.md) - API Gateway issues
 - [SCRIPTS.md](SCRIPTS.md) - Helper scripts documentation
 

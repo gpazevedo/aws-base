@@ -1,73 +1,89 @@
-# Docker ARM64 Architecture Guarantee
+# Docker Architecture Selection
 
 ## Overview
 
-**All Docker images published to Amazon ECR are guaranteed to use arm64 (aarch64) architecture for AWS Graviton2 processors.**
+**Docker images published to Amazon ECR use architecture-specific builds based on the deployment target:**
 
-This is enforced at multiple levels to ensure consistency and prevent accidental deployments of x86_64 images to AWS services.
+- **App Runner**: `amd64` (x86_64) - App Runner uses x86_64 instances
+- **Lambda**: `arm64` - AWS Graviton2 processors for cost savings
+- **EKS**: `arm64` - Graviton2 nodes for cost savings
+
+This is automatically enforced based on the Dockerfile being used, ensuring consistency and preventing architecture mismatches.
 
 ---
 
-## Why ARM64?
+## Why ARM64 for Lambda and EKS?
 
 AWS Graviton2 processors (arm64 architecture) provide:
 
 - ✅ **Better price-performance**: Up to 40% better price-performance than x86_64
 - ✅ **Energy efficiency**: Lower power consumption
-- ✅ **Native support**: AWS Lambda, App Runner, and EKS all support Graviton2
+- ✅ **Native support**: AWS Lambda and EKS fully support Graviton2
 - ✅ **Future-proof**: AWS is investing heavily in Graviton processors
 
-**All ECR images in this project target arm64 to maximize these benefits.**
+**Lambda and EKS images use arm64 to maximize these benefits.**
+
+## Why AMD64 for App Runner?
+
+AWS App Runner currently uses x86_64 instances:
+
+- ✅ **Native compatibility**: No emulation overhead
+- ✅ **Service requirement**: App Runner infrastructure is x86_64-based
+- ✅ **Optimal performance**: Matches the underlying instance architecture
 
 ---
 
 ## Enforcement Mechanisms
 
-### 1. **Hardcoded in docker-push.sh**
+### 1. **Automatic Detection in docker-push.sh**
 
 The primary enforcement is in `scripts/docker-push.sh`:
 
 ```bash
 # =============================================================================
-# IMPORTANT: ECR images MUST always be arm64 for AWS Graviton2
-# This is hardcoded and cannot be overridden to ensure consistency across:
-# - AWS Lambda (Graviton2 processors)
-# - AWS App Runner (arm64 instances)
-# - AWS EKS (Graviton2 nodes)
+# IMPORTANT: Architecture selection based on deployment target
+# - AWS App Runner: amd64 (x86_64 instances)
+# - AWS Lambda: arm64 (Graviton2 processors)
+# - AWS EKS: arm64 (Graviton2 nodes)
 #
-# DO NOT modify this value. Local testing with other architectures should
-# use 'make docker-build ARCH=amd64' which does NOT push to ECR.
+# Architecture is automatically determined from the Dockerfile name.
+# DO NOT modify this logic unless AWS services change their architectures.
 # =============================================================================
-TARGET_ARCH="arm64"  # REQUIRED: Always build for arm64 (AWS Graviton2)
+if [[ "$DOCKERFILE" == *"apprunner"* ]]; then
+  TARGET_ARCH="amd64"  # App Runner uses x86_64
+else
+  TARGET_ARCH="arm64"  # Lambda and EKS use Graviton2 (arm64)
+fi
 ```
 
-**This value is hardcoded and has no override mechanism.**
+**Architecture is automatically selected based on the Dockerfile name - no manual override needed.**
 
 ### 2. **All ECR Push Commands Use docker-push.sh**
 
-Every method of pushing to ECR uses the same script:
+Every method of pushing to ECR uses the same script with automatic architecture detection:
 
 | Command | Script Called | Architecture |
 |---------|---------------|--------------|
-| `make docker-push-dev` | `docker-push.sh` | ✅ arm64 |
-| `make docker-push-test` | `docker-push.sh` | ✅ arm64 |
-| `make docker-push-prod` | `docker-push.sh` | ✅ arm64 |
+| `./scripts/docker-push.sh dev api Dockerfile.apprunner` | `docker-push.sh` | ✅ amd64 |
+| `./scripts/docker-push.sh dev api Dockerfile.lambda` | `docker-push.sh` | ✅ arm64 |
+| `./scripts/docker-push.sh dev api Dockerfile.eks` | `docker-push.sh` | ✅ arm64 |
 | GitHub Actions (Lambda) | `docker-push.sh` | ✅ arm64 |
-| GitHub Actions (App Runner) | `docker-push.sh` | ✅ arm64 |
+| GitHub Actions (App Runner) | `docker-push.sh` | ✅ amd64 |
 | GitHub Actions (EKS) | `docker-push.sh` | ✅ arm64 |
 
-**There is no way to push to ECR without using `docker-push.sh`.**
+**Architecture is determined by the Dockerfile parameter - fully automated.**
 
-### 3. **QEMU Emulation for x86_64 Hosts**
+### 3. **QEMU Emulation for Cross-Platform Builds**
 
-When building on x86_64 machines, the script automatically:
+The script automatically handles cross-platform builds:
 
-1. Detects the host architecture
-2. Installs QEMU emulation (one-time setup)
-3. Uses Docker BuildKit to cross-compile for arm64
-4. Pushes arm64 image to ECR
+1. Detects the host architecture (x86_64 or arm64)
+2. Detects the target architecture (from Dockerfile)
+3. Installs QEMU emulation if needed (one-time setup)
+4. Uses Docker BuildKit to cross-compile
+5. Pushes correctly-architected image to ECR
 
-Example output:
+Example output (x86_64 → arm64):
 ```
 🖥️  Detecting host architecture...
    Host CPU: x86_64
@@ -79,6 +95,17 @@ Example output:
 📦 Installing QEMU for cross-platform builds...
    This is a one-time setup
 ✅ QEMU installed successfully
+```
+
+Example output (arm64 → amd64):
+
+```
+🖥️  Detecting host architecture...
+   Host CPU: arm64
+   Target: amd64 (AWS App Runner x86_64)
+
+⚠️  Cross-platform build detected (arm64 → amd64)
+   QEMU emulation required for amd64 builds
 ```
 
 ### 4. **Visual Warnings in Makefile**
@@ -187,24 +214,22 @@ When `docker-push.sh` builds with `--platform=linux/arm64`:
 
 ## Cost Savings
 
-By using arm64 across all AWS services, you save:
+By using the correct architecture for each service, you optimize costs:
 
-| Service | Savings | Notes |
-|---------|---------|-------|
-| **Lambda** | ~20% | Graviton2 Lambda is cheaper per GB-second |
-| **App Runner** | ~20% | arm64 instances cost less |
-| **EKS** | ~30-40% | Graviton2 EC2 instances (t4g, m6g, c6g) |
-| **ECR Transfer** | N/A | Same cost (no transfer between regions) |
+| Service | Architecture | Savings | Notes |
+|---------|-------------|---------|-------|
+| **Lambda** | arm64 | ~20% | Graviton2 Lambda is cheaper per GB-second |
+| **App Runner** | amd64 | N/A | Uses x86_64 infrastructure (native performance) |
+| **EKS** | arm64 | ~30-40% | Graviton2 EC2 instances (t4g, m6g, c6g) |
+| **ECR Transfer** | N/A | N/A | Same cost (no transfer between regions) |
 
-**Example:** For a $500/month AWS bill, switching to Graviton2 could save $100-150/month.
+**Example:** For Lambda and EKS workloads, switching to Graviton2 could save 20-40% on compute costs.
 
 ---
 
-## Migration from x86_64
+## Migration Guide
 
-If you previously used x86_64 and want to migrate:
-
-### 1. Update Lambda Functions
+### Migrating Lambda from x86_64 to arm64
 
 ```bash
 # Build and push new arm64 image
@@ -221,11 +246,18 @@ aws lambda update-function-code \
   --image-uri $ECR_URI:api-dev-latest
 ```
 
-### 2. Update App Runner
+### Migrating App Runner to amd64
 
-App Runner automatically uses the image's architecture. Just deploy the new arm64 image.
+App Runner uses x86_64 infrastructure:
 
-### 3. Update EKS
+```bash
+# Build and push amd64 image (automatically detected from Dockerfile.apprunner)
+./scripts/docker-push.sh dev apprunner Dockerfile.apprunner
+
+# Deploy - App Runner automatically uses the image's architecture
+```
+
+### Migrating EKS to arm64
 
 For EKS, you need Graviton2 node groups:
 
@@ -237,6 +269,12 @@ node_groups = {
     # ...
   }
 }
+```
+
+Then build and push arm64 images:
+
+```bash
+./scripts/docker-push.sh dev api Dockerfile.eks
 ```
 
 ---
@@ -292,11 +330,12 @@ kubectl get nodes -o jsonpath='{.items[*].status.nodeInfo.architecture}'
 
 | Question | Answer |
 |----------|--------|
-| **Can I push x86_64 images to ECR?** | ❌ No, docker-push.sh only allows arm64 |
-| **Can I build x86_64 locally?** | ✅ Yes, for testing only (not pushed to ECR) |
-| **Do GitHub Actions enforce arm64?** | ✅ Yes, all workflows use docker-push.sh |
-| **Can I override the architecture?** | ❌ No, TARGET_ARCH is hardcoded |
-| **What if I need x86_64?** | Use local builds only, never push to ECR |
+| **What architecture for App Runner?** | ✅ amd64 (x86_64) - automatically detected |
+| **What architecture for Lambda?** | ✅ arm64 (Graviton2) - automatically detected |
+| **What architecture for EKS?** | ✅ arm64 (Graviton2) - automatically detected |
+| **Can I override the architecture?** | ❌ No, determined by Dockerfile name |
+| **Do GitHub Actions enforce this?** | ✅ Yes, all workflows use docker-push.sh |
+| **Can I build locally with different arch?** | ✅ Yes, for testing only (not pushed to ECR) |
 
 ---
 
@@ -309,5 +348,5 @@ kubectl get nodes -o jsonpath='{.items[*].status.nodeInfo.architecture}'
 
 ---
 
-**Last Updated:** 2025-11-22
+**Last Updated:** 2025-11-23
 **Maintained By:** Project Team

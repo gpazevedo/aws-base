@@ -177,18 +177,26 @@ git add . && git commit -m "Initial setup" && git push origin main
 
 ## 🐳 Docker & Multi-Architecture
 
-All ECR images are **arm64 only** (AWS Graviton2 for cost savings).
+ECR images use **architecture-specific builds** based on deployment target:
+
+| Service | Architecture | Reason |
+|---------|-------------|--------|
+| **App Runner** | `amd64` (x86_64) | App Runner uses x86_64 instances |
+| **Lambda** | `arm64` | Graviton2 processors (cost savings) |
+| **EKS** | `arm64` | Graviton2 nodes (cost savings) |
 
 ```bash
 # Local testing (any arch)
 make docker-build-amd64  # For x86_64 machines
 docker run -p 9000:8080 <YOUR-PROJECT>:amd64-latest
 
-# Production (always arm64)
-make docker-push-dev     # Builds arm64, pushes to ECR
+# Production (architecture auto-detected from Dockerfile)
+./scripts/docker-push.sh dev api Dockerfile.apprunner  # Builds amd64
+./scripts/docker-push.sh dev api Dockerfile.lambda     # Builds arm64
+./scripts/docker-push.sh dev api Dockerfile.eks        # Builds arm64
 ```
 
-**📖 Details:** [DOCKER-ARM64-GUARANTEE.md](docs/DOCKER-ARM64-GUARANTEE.md)
+**📖 Details:** [Docker Architecture Selection](docs/DOCKER-ARCHITECTURE.md)
 
 ---
 
@@ -359,7 +367,7 @@ ecr_repositories = ["web-frontend"]  # Additional ECR repo
 
 ### Reference
 - [Scripts Documentation](docs/SCRIPTS.md) - All helper scripts
-- [ARM64 Guarantee](docs/DOCKER-ARM64-GUARANTEE.md) - Architecture enforcement
+- [Docker Architecture Selection](docs/DOCKER-ARCHITECTURE.md) - Architecture enforcement
 
 ---
 

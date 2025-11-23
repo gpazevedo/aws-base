@@ -46,13 +46,24 @@ module "api_gateway_shared" {
 }
 
 # =============================================================================
-# Lambda Integration Module
+# Lambda Service Integrations
 # =============================================================================
-# Integrates Lambda function with API Gateway using AWS_PROXY
+# Each Lambda service gets its own integration module instance
+# Services are added by setup-terraform-lambda.sh script
+#
+# Path-based routing: Each service gets /service-name/* paths
+# Root routing: One service can handle /* (set path_prefix = "")
+#
+# =============================================================================
 
-module "api_gateway_lambda" {
-  source = "./modules/api-gateway-lambda"
+# Integration for 'api' Lambda service
+module "api_gateway_lambda_api" {
+  source = "./modules/api-gateway-lambda-integration"
   count  = local.api_gateway_enabled ? 1 : 0
+
+  # Service configuration
+  service_name = "api"
+  path_prefix  = ""  # Empty = root path (handles / and /*)
 
   # API Gateway from shared module
   api_id                = module.api_gateway_shared[0].api_id
@@ -61,10 +72,28 @@ module "api_gateway_lambda" {
 
   # Lambda function
   lambda_function_name  = aws_lambda_function.api.function_name
-  lambda_function_arn   = aws_lambda_function.api.arn
   lambda_invoke_arn     = aws_lambda_function.api.invoke_arn
 
   # Configuration
-  enable_root_method    = true
+  enable_root_method    = true  # Allow this service to handle /
   api_key_required      = var.enable_api_key
 }
+
+# =============================================================================
+# Additional Lambda services will be appended here by setup scripts
+# Example:
+# module "api_gateway_lambda_worker" {
+#   source = "./modules/api-gateway-lambda-integration"
+#   count  = local.api_gateway_enabled ? 1 : 0
+#
+#   service_name         = "worker"
+#   path_prefix          = "worker"  # Routes /worker/* to worker service
+#   api_id               = module.api_gateway_shared[0].api_id
+#   api_root_resource_id = module.api_gateway_shared[0].root_resource_id
+#   api_execution_arn    = module.api_gateway_shared[0].execution_arn
+#   lambda_function_name = aws_lambda_function.worker.function_name
+#   lambda_invoke_arn    = aws_lambda_function.worker.invoke_arn
+#   enable_root_method   = false
+#   api_key_required     = var.enable_api_key
+# }
+# =============================================================================

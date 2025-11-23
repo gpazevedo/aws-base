@@ -54,6 +54,13 @@ env/
 *.log
 logs/
 
+# Temporary test files
+/tmp/test-api-response.json
+/tmp/test-lambda-response.json
+/tmp/test-apprunner-response.json
+/tmp/lambda-invoke-response.json
+/tmp/response.json
+
 # Environment variables
 .env
 .env.local

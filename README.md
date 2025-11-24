@@ -92,11 +92,11 @@ Start with the API service to learn the basics:
 ```bash
 make setup-terraform-backend
 
-# Create Lambda service infrastructure for 'api' service
-./scripts/setup-terraform-lambda.sh api false  # Disable API Key for quick start
-
 # Build & push Docker image for 'api' service
 ./scripts/docker-push.sh dev api Dockerfile.lambda
+
+# Create Lambda service infrastructure for 'api' service
+./scripts/setup-terraform-lambda.sh api false  # Disable API Key for quick start
 
 # Deploy infrastructure
 make app-init-dev app-apply-dev
@@ -126,15 +126,15 @@ make test-api
 Now add the runner service to demonstrate service-to-service communication:
 
 ```bash
+# Build & push Docker image for 'runner' service
+./scripts/docker-push.sh dev runner Dockerfile.apprunner
+
 # Create AppRunner service infrastructure for 'runner' service
 ./scripts/setup-terraform-apprunner.sh runner
 
 # When prompted, optionally add to API Gateway
 # y = Add to API Gateway with path /runner (recommended for this example)
 # N = Access directly via AppRunner URL
-
-# Build & push Docker image for 'runner' service
-./scripts/docker-push.sh dev runner Dockerfile.apprunner
 
 # Deploy runner service
 make app-init-dev app-apply-dev

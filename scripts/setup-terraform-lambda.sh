@@ -111,22 +111,22 @@ if [ ! -f "$LAMBDA_VARS_FILE" ]; then
 # Common variables are in variables.tf
 # =============================================================================
 
+variable "lambda_architecture" {
+  description = "Lambda function architecture (x86_64 or arm64)"
+  type        = string
+  default     = "arm64"
+}
+
 variable "lambda_memory_size" {
-  description = "Default Lambda function memory size in MB (can be overridden per service)"
+  description = "Default Lambda function memory size in MB (used when not specified per-service)"
   type        = number
   default     = 512
 }
 
 variable "lambda_timeout" {
-  description = "Default Lambda function timeout in seconds (can be overridden per service)"
+  description = "Default Lambda function timeout in seconds (used when not specified per-service)"
   type        = number
   default     = 30
-}
-
-variable "lambda_architecture" {
-  description = "Lambda function architecture (x86_64 or arm64)"
-  type        = string
-  default     = "arm64"
 }
 
 # =============================================================================
@@ -138,11 +138,17 @@ variable "lambda_architecture" {
 variable "lambda_service_configs" {
   description = "Per-service Lambda configuration (memory_size, timeout, reserved_concurrency)"
   type = map(object({
-    memory_size                    = optional(number)
-    timeout                        = optional(number)
-    reserved_concurrent_executions = optional(number)
+    memory_size                    = number
+    timeout                        = number
+    reserved_concurrent_executions = number
   }))
-  default = {}
+  default = {
+    api = {
+      memory_size                    = 1024
+      timeout                        = 300
+      reserved_concurrent_executions = 10
+    }
+  }
 }
 
 # Example usage in environments/{env}.tfvars:
@@ -187,7 +193,6 @@ for ENV in "${ENVIRONMENTS[@]}"; do
 
 lambda_memory_size  = $([ "$ENV" = "prod" ] && echo "1024" || echo "512")
 lambda_timeout      = $([ "$ENV" = "prod" ] && echo "60" || echo "30")
-lambda_architecture = "arm64"  # or "x86_64"
 
 # Per-service Lambda configuration (optional)
 # lambda_service_configs = {

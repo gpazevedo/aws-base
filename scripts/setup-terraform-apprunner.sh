@@ -146,7 +146,7 @@ variable "apprunner_min_instances" {
 variable "apprunner_max_instances" {
   description = "Default maximum number of App Runner instances"
   type        = number
-  default     = 10
+  default     = 2
 }
 
 variable "apprunner_max_concurrency" {

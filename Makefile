@@ -219,6 +219,7 @@ bootstrap-destroy:
 setup-terraform-backend:
 	@echo "📝 Generating Terraform backend configurations..."
 	./scripts/setup-terraform-backend.sh
+	./scripts/setup-terraform-base.sh
 
 setup-terraform-lambda:
 	@echo "🏗️  Generating example Lambda Terraform files..."

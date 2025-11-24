@@ -126,7 +126,7 @@ variable "project_name" {
 }
 
 variable "environment" {
-  description = "Environment name (dev, test, prod)"api-gateway.tf
+  description = "Environment name (dev, test, prod)"
   type        = string
 }
 
@@ -295,37 +295,33 @@ if [ ! -f "$TERRAFORM_DIR/outputs.tf" ]; then
 # This file contains only shared outputs.
 # =============================================================================
 
-locals {
-  api_gateway_enabled = var.enable_api_gateway_standard || var.enable_api_gateway
-}
-
 # =============================================================================
 # API Gateway Outputs (Simplified)
 # =============================================================================
 
 output "api_gateway_url" {
   description = "API Gateway endpoint URL (standard entry point)"
-  value       = local.api_gateway_enabled ? aws_api_gateway_stage.api[0].invoke_url : "Not enabled"
+  value       = try(module.api_gateway_shared[0].invoke_url, "Not enabled")
 }
 
 output "api_gateway_id" {
   description = "API Gateway REST API ID"
-  value       = local.api_gateway_enabled ? aws_api_gateway_rest_api.api[0].id : "Not enabled"
+  value       = try(module.api_gateway_shared[0].api_id, "Not enabled")
 }
 
 output "api_gateway_stage" {
   description = "API Gateway stage name"
-  value       = local.api_gateway_enabled ? aws_api_gateway_stage.api[0].stage_name : "Not enabled"
+  value       = try(module.api_gateway_shared[0].stage_name, "Not enabled")
 }
 
 output "api_key_id" {
   description = "API Key ID (if enabled)"
-  value       = local.api_gateway_enabled && var.enable_api_key ? aws_api_gateway_api_key.api_key[0].id : "Not enabled"
+  value       = try(module.api_gateway_shared[0].api_key_id, "Not enabled")
 }
 
 output "api_key_value" {
   description = "API Key value (sensitive, if enabled)"
-  value       = local.api_gateway_enabled && var.enable_api_key ? aws_api_gateway_api_key.api_key[0].value : null
+  value       = try(module.api_gateway_shared[0].api_key_value, null)
   sensitive   = true
 }
 
@@ -350,7 +346,7 @@ output "deployment_mode" {
 
 output "primary_endpoint" {
   description = "Primary application endpoint (API Gateway, if enabled)"
-  value       = local.api_gateway_enabled ? aws_api_gateway_stage.api[0].invoke_url : "Not enabled - use service-specific Function URLs"
+  value       = try(module.api_gateway_shared[0].invoke_url, "Not enabled - use service-specific Function URLs")
 }
 
 # =============================================================================
@@ -433,10 +429,10 @@ EOF
   fi
 done
 
-if [ ! -f "$API_GATEWAY_FILE" ]; then
+if [ ! -f "terraform/api-gateway.tf" ]; then
   echo "📝 Creating terraform/api-gateway.tf (modular structure)..."
 
-  cat > "$API_GATEWAY_FILE" <<'EOF'
+  cat > "terraform/api-gateway.tf" <<'EOF'
 # =============================================================================
 # API Gateway Configuration (Standard Mode)
 # =============================================================================
@@ -514,3 +510,4 @@ echo ""
 echo "4. Initialize and deploy:"
 echo "   make app-init-dev app-apply-dev"
 echo ""
+fi

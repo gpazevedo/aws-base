@@ -2,6 +2,10 @@
 
 Complete documentation for the AWS Bootstrap Infrastructure project.
 
+## Overview
+
+- **[Executive Summary](../EXECUTIVE-SUMMARY.md)** - High-level overview for decision-makers and stakeholders
+
 ## Getting Started
 
 - **[Installation Guide](INSTALLATION.md)** - Tool setup and prerequisites
@@ -16,6 +20,7 @@ Complete documentation for the AWS Bootstrap Infrastructure project.
 
 ## Deployment
 
+- **[GitHub Actions CI/CD](GITHUB-ACTIONS.md)** - Automated deployment workflows and configuration
 - **[Incremental Adoption](INCREMENTAL-ADOPTION.md)** - Start small, add services incrementally
 - **[Scripts Documentation](SCRIPTS.md)** - All helper scripts reference
 
@@ -41,6 +46,7 @@ Complete documentation for the AWS Bootstrap Infrastructure project.
 | New to project? | [Installation Guide](INSTALLATION.md) |
 | Deploy Lambda services | [Terraform Bootstrap](TERRAFORM-BOOTSTRAP.md) |
 | Add AppRunner services | [Multi-Service Architecture](MULTI-SERVICE-ARCHITECTURE.md) |
+| Setup CI/CD pipelines | [GitHub Actions](GITHUB-ACTIONS.md) |
 | Test API endpoints | [API Endpoints](API-ENDPOINTS.md) |
 | Build multi-arch Docker | [Docker Architecture](DOCKER-ARCHITECTURE.md) |
 | Fix API Gateway issues | [API Gateway Troubleshooting](TROUBLESHOOTING-API-GATEWAY.md) |

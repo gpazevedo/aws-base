@@ -40,4 +40,4 @@ Please explain the architecture of this AWS infrastructure project including:
    - Deployed services and health endpoints
    - Testing commands
 
-Provide a clear overview with examples, suitable for someone new to the project. Reference the MULTI-SERVICE-ARCHITECTURE.md and DEPLOYMENT-STATUS.md documents.
+Provide a clear overview with examples, suitable for someone new to the project. Reference the MULTI-SERVICE-ARCHITECTURE.md document.

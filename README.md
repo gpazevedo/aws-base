@@ -2,9 +2,13 @@
 
 > **Production-ready AWS infrastructure template for Python applications**
 
-Bootstrap AWS projects with Python 3.13, `uv` dependency management, GitHub Actions CI/CD via OIDC, and Terraform state management. Supports Lambda, App Runner, and EKS deployment options.
+Bootstrap AWS projects with Python 3.13, `uv` dependency management, GitHub Actions CI/CD via OIDC, and Terraform state management. Supports Lambda, App Runner, and EKS deployment options with multi-service architecture.
 
-**📖 New to this project?** See the [Terraform Bootstrap Guide](docs/INSTALLATION.md) for complete setup.
+**📖 New to this project?**
+
+- [Executive Summary](EXECUTIVE-SUMMARY.md) - High-level overview for decision-makers
+- [Installation Guide](docs/INSTALLATION.md) - Complete setup and prerequisites
+- [Multi-Service Architecture](docs/MULTI-SERVICE-ARCHITECTURE.md) - Technical architecture guide
 
 ---
 
@@ -409,6 +413,7 @@ ecr_repositories = ["web-frontend"]  # Additional ECR repo
 - [API Endpoints](docs/API-ENDPOINTS.md) - API documentation
 
 ### Advanced
+- [GitHub Actions CI/CD](docs/GITHUB-ACTIONS.md) - Automated deployment workflows
 - [Incremental Adoption](docs/INCREMENTAL-ADOPTION.md) - Start small, scale later
 - [Docker Multi-Arch](docs/DOCKER-MULTIARCH.md) - ARM64 builds
 - [Pre-commit Hooks](docs/PRE-COMMIT.md) - Code quality

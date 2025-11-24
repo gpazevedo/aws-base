@@ -38,7 +38,7 @@ The service uses environment variables for configuration. Copy `.env.example` to
 API_SERVICE_URL=http://localhost:8000
 
 # Optional (with defaults)
-SERVICE_NAME=apprunner
+SERVICE_NAME=runner
 SERVICE_VERSION=0.1.0
 HTTP_TIMEOUT=30.0
 HTTP_MAX_RETRIES=3
@@ -83,24 +83,24 @@ uv run pytest -v --cov=. --cov-report=term-missing
 Build and run using the AppRunner Dockerfile:
 
 ```bash
-# Build for ARM64 (production)
+# Build for ARM64 (production) NOT AVAILABLE ON AWS
 docker build --platform=linux/arm64 \
-  --build-arg SERVICE_FOLDER=apprunner \
+  --build-arg SERVICE_FOLDER=runner \
   -f ../Dockerfile.apprunner \
-  -t apprunner:arm64 \
+  -t runner:arm64 \
   ..
 
 # Build for AMD64 (local testing)
 docker build --platform=linux/amd64 \
-  --build-arg SERVICE_FOLDER=apprunner \
+  --build-arg SERVICE_FOLDER=runner \
   -f ../Dockerfile.apprunner \
-  -t apprunner:amd64 \
+  -t runner:amd64 \
   ..
 
 # Run locally
 docker run -p 8080:8080 \
   -e API_SERVICE_URL=http://host.docker.internal:8000 \
-  apprunner:amd64
+  runner:amd64
 ```
 
 ## AWS Deployment

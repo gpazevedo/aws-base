@@ -57,6 +57,8 @@ Bootstrap AWS projects with Python 3.13, `uv` dependency management, GitHub Acti
 
 ## 🚀 Quick Start
 
+> **📝 Note:** This repository includes two example services (`api` and `runner`) to demonstrate the multi-service architecture capabilities. The `api` service (Lambda) and `runner` service (AppRunner) show how different AWS compute options can work together. You can use these as templates to build your own services or replace them entirely.
+
 ### 1. Clone and Setup
 
 ```bash
@@ -83,7 +85,9 @@ aws sts get-caller-identity  # Verify AWS credentials
 make bootstrap-create bootstrap-init bootstrap-apply
 ```
 
-### 4. Deploy Application
+### 4. Deploy API Service (Lambda Example)
+
+Start with the API service to learn the basics:
 
 ```bash
 make setup-terraform-backend
@@ -98,13 +102,13 @@ make setup-terraform-backend
 make app-init-dev app-apply-dev
 ```
 
-### 5. Test Deployment
+### 5. Test API Service
 
 ```bash
 # Get endpoint
 PRIMARY_URL=$(cd terraform && terraform output -raw primary_endpoint)
 
-# Test API
+# Test API service endpoints
 curl $PRIMARY_URL/health
 curl "$PRIMARY_URL/greet?name=World"
 curl $PRIMARY_URL/docs  # OpenAPI docs
@@ -117,9 +121,77 @@ make test-api
 >
 > **📖 All endpoints:** [API-ENDPOINTS.md](docs/API-ENDPOINTS.md)
 
-### 5a. Deploy Multiple Lambda Services (Path-Based Routing)
+### 6. Deploy Runner Service (AppRunner Example)
 
-Add additional Lambda services behind the same API Gateway with automatic path-based routing:
+Now add the runner service to demonstrate service-to-service communication:
+
+```bash
+# Create AppRunner service infrastructure for 'runner' service
+./scripts/setup-terraform-apprunner.sh runner
+
+# When prompted, optionally add to API Gateway
+# y = Add to API Gateway with path /runner (recommended for this example)
+# N = Access directly via AppRunner URL
+
+# Build & push Docker image for 'runner' service
+./scripts/docker-push.sh dev runner Dockerfile.apprunner
+
+# Deploy runner service
+make app-init-dev app-apply-dev
+```
+
+### 7. Test Runner Service
+
+```bash
+# Get runner service URL
+RUNNER_URL=$(cd terraform && terraform output -raw apprunner_runner_url)
+
+# Test runner service directly
+curl $RUNNER_URL/health
+curl "$RUNNER_URL/greet?name=Runner"
+```
+
+### 8. Test Service-to-Service Communication
+
+The API service has an `/inter-service` endpoint that calls other services, demonstrating how services can communicate:
+
+```bash
+# Get API Gateway endpoint and Runner URL
+PRIMARY_URL=$(cd terraform && terraform output -raw primary_endpoint)
+RUNNER_URL=$(cd terraform && terraform output -raw apprunner_runner_url)
+
+# API service calls runner service's /health endpoint
+curl "$PRIMARY_URL/inter-service?service_url=${RUNNER_URL}/health"
+
+# This shows:
+# - HTTP communication between Lambda and AppRunner
+# - Response time tracking
+# - Generic inter-service communication pattern
+```
+
+**Expected response:**
+```json
+{
+  "service_response": {
+    "status": "healthy",
+    "timestamp": "2025-11-24T10:30:00.123456+00:00",
+    "uptime_seconds": 120.45,
+    "version": "0.1.0",
+    "service_name": "runner"
+  },
+  "status_code": 200,
+  "response_time_ms": 45.67,
+  "target_url": "https://m269wkmi93.us-east-1.awsapprunner.com/health"
+}
+```
+
+> **🔄 Inter-Service Communication:** The `/inter-service` endpoint accepts any service URL as a query parameter, making it flexible for calling different services. No environment variables or hardcoded URLs needed - just pass the target URL when making the request.
+
+### 9. Add More Services (Optional)
+
+You can add as many Lambda and AppRunner services as needed. They all follow the same pattern:
+
+**Add more Lambda services:**
 
 ```bash
 # Create additional Lambda services (automatically appends to api-gateway.tf)
@@ -140,10 +212,9 @@ make app-init-dev app-apply-dev
 - **'worker' service** → `/worker`, `/worker/health`, `/worker/jobs`, etc.
 - **'scheduler' service** → `/scheduler`, `/scheduler/health`, `/scheduler/tasks`, etc.
 
-**Test multiple services:**
+**Test multiple Lambda services:**
 
 ```bash
-# Test all services through single API Gateway
 PRIMARY_URL=$(cd terraform && terraform output -raw primary_endpoint)
 
 curl $PRIMARY_URL/health           # 'api' service
@@ -155,26 +226,16 @@ make test-lambda-api
 make test-lambda-worker
 ```
 
-> **💡 How it works:** The first Lambda service creates `api-gateway.tf` with shared gateway module. Additional services automatically append their integration modules to the same file.
-
-### 5b. Deploy Multiple AppRunner Services (Optional)
-
-Deploy AppRunner services for long-running web applications, microservices, or background workers:
+**Add more AppRunner services:**
 
 ```bash
-# Create and deploy multiple AppRunner services
+# Create and deploy additional AppRunner services
 ./scripts/setup-terraform-apprunner.sh web      # Web frontend service
 ./scripts/setup-terraform-apprunner.sh admin    # Admin dashboard
-./scripts/setup-terraform-apprunner.sh worker   # Background worker
 
-# When prompted, optionally add to API Gateway (if api-gateway.tf exists)
-# y = Add to API Gateway with path-based routing (/web, /admin, /worker)
-# N = Access directly via AppRunner URLs
-
-# Build & push images for each service
+# Build & push images
 ./scripts/docker-push.sh dev web Dockerfile.apprunner
 ./scripts/docker-push.sh dev admin Dockerfile.apprunner
-./scripts/docker-push.sh dev worker Dockerfile.apprunner
 
 # Deploy all AppRunner services
 make app-init-dev app-apply-dev
@@ -186,33 +247,17 @@ make app-init-dev app-apply-dev
 # Test specific services
 make test-apprunner-web
 make test-apprunner-admin
-./scripts/test-apprunner.sh worker
 
 # Get service URLs
 cd terraform && terraform output apprunner_web_url
 cd terraform && terraform output apprunner_admin_url
-cd terraform && terraform output apprunner_worker_url
 ```
 
-**Local testing (service-to-service communication):**
-
-```bash
-# Terminal 1: Web service
-cd backend/web && uv run python main.py
-
-# Terminal 2: Admin service
-cd backend/admin && uv run python main.py
-
-# Terminal 3: Test endpoints
-curl http://localhost:8000/health    # Web service
-curl http://localhost:8001/health    # Admin service
-```
-
-> **📖 Multi-service details:** Each AppRunner service gets its own `apprunner-<service>.tf` file and dedicated outputs
+> **💡 How it works:** The first Lambda service creates `api-gateway.tf` with shared gateway module. Additional services automatically append their integration modules to the same file. Each AppRunner service gets its own `apprunner-<service>.tf` file and dedicated outputs.
 >
-> **🔄 Service communication:** AppRunner services can communicate with Lambda functions via API Gateway or directly via service URLs
+> **🔄 Service communication:** Services can communicate with each other via API Gateway paths, direct AppRunner URLs, or Lambda Function URLs. Use Terraform outputs to get service URLs and pass them as parameters when calling the `/inter-service` endpoint.
 
-### 6. GitHub Actions (Optional)
+### 10. GitHub Actions (Optional)
 
 Configure repository secrets (get ARNs from `make bootstrap-output`):
 - `AWS_ACCOUNT_ID`, `AWS_REGION`
@@ -294,7 +339,7 @@ aws-base/
 │   ├── api/            # FastAPI API service (Lambda/API Gateway)
 │   │   ├── main.py
 │   │   └── pyproject.toml
-│   ├── apprunner/      # FastAPI AppRunner service
+│   ├── runner/          # FastAPI AppRunner service
 │   │   ├── main.py
 │   │   └── pyproject.toml
 │   ├── Dockerfile.lambda
@@ -316,7 +361,7 @@ Organize services in `backend/`:
 ```bash
 backend/
 ├── api/          # API service (Lambda/API Gateway)
-├── apprunner/    # AppRunner service (long-running web app)
+├── runner/       # AppRunner service (long-running web app)
 ├── worker/       # Background worker
 └── scheduler/    # Scheduled jobs
 ```
@@ -324,19 +369,19 @@ backend/
 Build & deploy individually:
 ```bash
 # Build and push a specific service
-make docker-build SERVICE=apprunner
-make docker-push-dev SERVICE=apprunner
+make docker-build SERVICE=runner
+make docker-push-dev SERVICE=runner
 
 # Or use the docker-push script directly
-./scripts/docker-push.sh dev apprunner Dockerfile.apprunner
+./scripts/docker-push.sh dev runner Dockerfile.apprunner
 ```
 
-Images tagged: `{service}-{env}-{datetime}-{sha}` (e.g., `apprunner-dev-2025-11-22-abc1234`)
+Images tagged: `{service}-{env}-{datetime}-{sha}` (e.g., `runner-dev-2025-11-22-abc1234`)
 
 **Service-to-Service Communication:**
 
 - Lambda services accessed via API Gateway root paths: `/health`, `/api-health`
-- AppRunner services accessed via path prefix: `/apprunner/health`, `/web/health`, etc.
+- AppRunner services accessed via path prefix: `/runner/health`, `/web/health`, etc.
 - Both services use `httpx` for async HTTP communication
 - Configure service URLs via environment variables or API Gateway URL
 
@@ -373,7 +418,7 @@ enable_api_key = true               # Require API keys
 ```hcl
 enable_apprunner = true
 enable_api_gateway_standard = true
-apprunner_cpu = "1024"
+apprunner_cpu = "512"
 apprunner_memory = "2048"
 ```
 

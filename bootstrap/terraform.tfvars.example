@@ -39,7 +39,7 @@ lambda_use_container_image = true   # Use containers (more flexible) vs ZIP pack
 lambda_architecture = "arm64"       # "arm64" (cheaper) or "x86_64"
 
 # App Runner (containerized web applications)
-enable_apprunner = false  # Enable for web apps, APIs with containers
+enable_apprunner = true  # Enable for web apps, APIs with containers
 apprunner_cpu = 256      # CPU units: 256, 512, 1024, 2048, 4096
 apprunner_memory = 2048   # Memory in MB: 512 to 12288
 

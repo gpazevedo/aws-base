@@ -101,18 +101,27 @@ def test_error_endpoint() -> None:
 # =============================================================================
 
 
-def test_apprunner_health_endpoint_structure() -> None:
+def test_inter_service_endpoint_missing_url() -> None:
     """
-    Test the AppRunner health endpoint structure.
+    Test the inter-service endpoint returns validation error when URL is missing.
+    """
+    response = client.get("/inter-service")
+    # Should return 422 validation error when service_url parameter is missing
+    assert response.status_code == 422
 
-    Note: This endpoint requires a running AppRunner service to fully test.
-    For unit tests, we verify the endpoint exists and returns proper error
-    when the AppRunner service is not available.
+
+def test_inter_service_endpoint_with_invalid_url() -> None:
     """
-    # Without a running AppRunner service, this will return 503
-    response = client.get("/apprunner-health")
-    # The endpoint should be accessible (not 404)
-    assert response.status_code in [200, 503]
+    Test the inter-service endpoint with an invalid URL.
+
+    This should return 503 because the service cannot be reached.
+    """
+    response = client.get("/inter-service?service_url=http://invalid-url-that-does-not-exist.local/health")
+    # The endpoint should be accessible but return 503 (service unavailable)
+    assert response.status_code == 503
+    data = response.json()
+    assert "detail" in data
+    assert "Failed to reach service" in data["detail"]
 
 
 # =============================================================================
@@ -157,4 +166,4 @@ def test_404_not_found() -> None:
     assert "error" in data
     assert "available_endpoints" in data
     assert "/" in data["available_endpoints"]
-    assert "/apprunner-health" in data["available_endpoints"]
+    assert "/inter-service" in data["available_endpoints"]

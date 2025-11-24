@@ -21,9 +21,6 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-    # AppRunner service URL (optional - for service-to-service communication)
-    apprunner_service_url: str = "http://localhost:8080"
-
     # Service configuration
     service_name: str = "api"
     service_version: str = "0.1.0"
@@ -84,12 +81,13 @@ class StatusResponse(BaseModel):
     status: str
 
 
-class AppRunnerHealthResponse(BaseModel):
-    """Response from calling AppRunner service health endpoint."""
+class InterServiceResponse(BaseModel):
+    """Response from calling another service's endpoint."""
 
-    apprunner_response: dict[str, Any]
+    service_response: dict[str, Any]
     status_code: int
     response_time_ms: float
+    target_url: str
 
 
 # =============================================================================
@@ -215,47 +213,56 @@ async def trigger_error() -> None:
 
 
 # =============================================================================
-# AppRunner Service Integration Endpoints
+# Inter-Service Communication Endpoints
 # =============================================================================
 
 
-@app.get("/apprunner-health", response_model=AppRunnerHealthResponse, tags=["Service Integration"])
-async def get_apprunner_health() -> AppRunnerHealthResponse:
+@app.get("/inter-service", response_model=InterServiceResponse, tags=["Service Integration"])
+async def call_service(
+    service_url: str = Query(..., description="Full URL of the service endpoint to call (e.g., https://example.com/health)")
+) -> InterServiceResponse:
     """
-    Call the AppRunner service health endpoint and return the response.
+    Call another service's endpoint and return the response.
 
     This endpoint demonstrates service-to-service communication by calling
-    the AppRunner service's /health endpoint and returning what it received.
+    any provided service URL and returning what it received.
+
+    Args:
+        service_url: Full URL of the service endpoint to call (query parameter)
 
     Returns:
-        AppRunnerHealthResponse: The response from the AppRunner service including
-                                status code, response time, and the full response body
+        InterServiceResponse: The response from the target service including
+                             status code, response time, and the full response body
 
     Raises:
-        HTTPException: If the AppRunner service is unreachable or returns an error
+        HTTPException: If the target service is unreachable or returns an error
+
+    Example:
+        GET /inter-service?service_url=https://m269wkmi93.us-east-1.awsapprunner.com/health
     """
     start_time = time.time()
 
     try:
         async with httpx.AsyncClient(timeout=settings.http_timeout) as client:
-            response = await client.get(f"{settings.apprunner_service_url}/health")
+            response = await client.get(service_url)
             response_time = (time.time() - start_time) * 1000  # Convert to ms
 
             # Return the response regardless of status code
-            return AppRunnerHealthResponse(
-                apprunner_response=response.json(),
+            return InterServiceResponse(
+                service_response=response.json(),
                 status_code=response.status_code,
                 response_time_ms=round(response_time, 2),
+                target_url=service_url,
             )
     except httpx.RequestError as e:
         raise HTTPException(
             status_code=503,
-            detail=f"Failed to reach AppRunner service: {str(e)}",
+            detail=f"Failed to reach service at {service_url}: {str(e)}",
         )
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=f"Unexpected error calling AppRunner service: {str(e)}",
+            detail=f"Unexpected error calling service at {service_url}: {str(e)}",
         )
 
 
@@ -278,7 +285,7 @@ async def not_found_handler(request: Any, exc: Any) -> JSONResponse:
                 "/liveness",
                 "/readiness",
                 "/greet",
-                "/apprunner-health",
+                "/inter-service",
                 "/docs",
                 "/redoc",
                 "/openapi.json",

@@ -47,7 +47,7 @@ This is an AWS infrastructure project with:
 **Deployed Services:**
 
 - Lambda 'api' service → Root path: `/`, `/health`, `/greet`
-- AppRunner 'apprunner' service → Path: `/apprunner/*`
+- AppRunner 'runner' service → Path: `/runner/*`
 
 **Path-Based Routing:**
 

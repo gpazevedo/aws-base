@@ -6,7 +6,7 @@
 # =============================================================================
 
 [project]
-name = "apprunner"
+name = "runner"
 version = "0.1.0"
 description = "AppRunner service for AWS deployment"
 requires-python = ">=3.13"

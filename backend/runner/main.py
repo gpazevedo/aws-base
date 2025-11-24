@@ -1,4 +1,4 @@
-"""AppRunner FastAPI service that calls the API service health endpoint."""
+"""Runner FastAPI service that calls the API service health endpoint."""
 
 import time
 from datetime import datetime, timezone
@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     api_service_url: str = "http://localhost:8000"
 
     # Service configuration
-    service_name: str = "apprunner"
+    service_name: str = "runner"
     service_version: str = "0.1.0"
 
     # HTTP client settings
@@ -41,8 +41,8 @@ settings = Settings()
 # =============================================================================
 
 app = FastAPI(
-    title="AWS AppRunner Service",
-    description="AppRunner service that calls the API service health endpoint",
+    title="AWS Runner Service",
+    description="Runner service that calls the API service health endpoint",
     version=settings.service_version,
     docs_url="/docs",  # Swagger UI
     redoc_url="/redoc",  # ReDoc
@@ -293,7 +293,7 @@ async def trigger_error() -> None:
     Raises:
         HTTPException: Always raises a 500 error for testing
     """
-    raise HTTPException(status_code=500, detail="This is a test error from AppRunner service")
+    raise HTTPException(status_code=500, detail="This is a test error from Runner service")
 
 
 # =============================================================================

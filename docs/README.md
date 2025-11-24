@@ -10,6 +10,8 @@ Complete documentation for the AWS Bootstrap Infrastructure project.
 
 - **[Installation Guide](INSTALLATION.md)** - Tool setup and prerequisites
 - **[Terraform Bootstrap Guide](TERRAFORM-BOOTSTRAP.md)** - Complete walkthrough of infrastructure setup
+- **[Adding Services](ADDING-SERVICES.md)** - Step-by-step guide to create new Lambda and AppRunner services
+- **[AWS Services Integration](AWS-SERVICES-INTEGRATION.md)** - Integrate SQS, DynamoDB, S3, and other AWS services
 - **[API Endpoints](API-ENDPOINTS.md)** - API documentation and testing
 
 ## Architecture
@@ -50,12 +52,15 @@ Complete documentation for the AWS Bootstrap Infrastructure project.
 | Test API endpoints | [API Endpoints](API-ENDPOINTS.md) |
 | Build multi-arch Docker | [Docker Architecture](DOCKER-ARCHITECTURE.md) |
 | Fix API Gateway issues | [API Gateway Troubleshooting](TROUBLESHOOTING-API-GATEWAY.md) |
+| Add new services | [Adding Services](ADDING-SERVICES.md) |
+| Integrate AWS services | [AWS Services Integration](AWS-SERVICES-INTEGRATION.md) |
 
 ## Recent Updates
 
 ### Multi-Service API Gateway Implementation (2025-11-23)
 
 **Completed:**
+
 - ✅ Modular API Gateway architecture with path-based routing
 - ✅ Support for multiple Lambda services behind single API Gateway
 - ✅ Support for AppRunner services with API Gateway integration
@@ -65,6 +70,7 @@ Complete documentation for the AWS Bootstrap Infrastructure project.
 - ✅ Bootstrap AppRunner IAM role creation
 
 **Key Features:**
+
 - Single API Gateway entry point for all services
 - Path-based routing: `/api/*`, `/worker/*`, `/apprunner/*`
 - Idempotent setup scripts (safe to run multiple times)
@@ -72,6 +78,7 @@ Complete documentation for the AWS Bootstrap Infrastructure project.
 - Complete testing suite with make targets
 
 **Documentation:**
+
 - Updated README with multi-service examples
 - Created MULTI-SERVICE-ARCHITECTURE.md guide
 - Updated API-ENDPOINTS.md with path routing

@@ -14,7 +14,7 @@
 # =============================================================================
 
 # Service folder argument (defaults to 'api')
-ARG SERVICE_FOLDER=apprunner
+ARG SERVICE_FOLDER=runner
 
 # Multi-arch support - TARGETPLATFORM is automatically set by Docker BuildKit
 # When using --platform=linux/arm64, TARGETPLATFORM=linux/arm64
@@ -24,7 +24,7 @@ ARG TARGETPLATFORM
 FROM --platform=$TARGETPLATFORM python:3.13-slim
 
 # Re-declare ARG after FROM (Docker requirement)
-ARG SERVICE_FOLDER=apprunner
+ARG SERVICE_FOLDER=runner
 
 # Install uv - fast Python package installer
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv

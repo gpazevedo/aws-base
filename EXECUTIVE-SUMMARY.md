@@ -84,7 +84,7 @@ API Gateway (Single Entry Point)
 ├── /               → Lambda 'api' service
 ├── /worker/*       → Lambda 'worker' service
 ├── /scheduler/*    → Lambda 'scheduler' service
-├── /apprunner/*    → AppRunner 'apprunner' service
+├── /runner/*       → AppRunner 'runner' service
 ├── /web/*          → AppRunner 'web' frontend
 └── /admin/*        → AppRunner 'admin' dashboard
 ```
@@ -173,7 +173,7 @@ terraform/
 |---------|---------------|---------|
 | Lambda 'api' (first) | Root path | `/`, `/health`, `/greet` |
 | Lambda (additional) | Service prefix | `/worker/jobs`, `/scheduler/tasks` |
-| AppRunner (all) | Service prefix | `/apprunner/health`, `/web/dashboard` |
+| AppRunner (all) | Service prefix | `/runner/health`, `/web/dashboard` |
 
 **Implementation:** Automatic via setup scripts, no manual configuration needed.
 
@@ -293,8 +293,8 @@ terraform/
 ```bash
 make bootstrap-apply     # Deploy bootstrap infrastructure
 make app-apply-dev       # Deploy to dev environment
-make test-lambda-api     # Test Lambda service
-make test-apprunner-web  # Test AppRunner service
+make test-lambda-api     # Test Lambda api service
+make test-apprunner-web  # Test AppRunner web service
 make docker-push-dev     # Build and push containers
 ```
 
@@ -328,7 +328,7 @@ make docker-push-dev     # Build and push containers
 **Infrastructure:**
 - API Gateway: `https://10p6i9glng.execute-api.us-east-1.amazonaws.com/dev`
 - Lambda 'api' service: 512MB, arm64, <100ms response time (warm)
-- AppRunner 'apprunner' service: 1 vCPU, 2GB, <200ms response time
+- AppRunner 'runner' service: 1 vCPU, 2GB, <200ms response time
 - All health endpoints: ✅ Operational
 
 **Performance Benchmarks:**

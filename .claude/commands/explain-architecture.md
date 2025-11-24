@@ -27,7 +27,7 @@ Please explain the architecture of this AWS infrastructure project including:
 
 6. **Multi-Service Backend**: Directory organization
    - `backend/api/` - Lambda service
-   - `backend/apprunner/` - AppRunner service
+   - `backend/runner/` - AppRunner service
    - Pattern for adding new services
 
 7. **Container Images**: Multi-architecture strategy

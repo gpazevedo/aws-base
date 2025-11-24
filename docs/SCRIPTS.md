@@ -73,177 +73,204 @@ use_lockfile = true
 
 ---
 
-### 3. `setup-terraform-lambda.sh`
+### 3. `setup-terraform-base.sh`
 
-**Purpose**: Generates example Terraform configuration files for Lambda-based application infrastructure.
+**Purpose**: Creates foundational Terraform configuration shared across all services.
 
-**Location**: `scripts/setup-terraform-lambda.sh`
+**Location**: `scripts/setup-terraform-base.sh`
 
 **Usage**:
 ```bash
-./scripts/setup-terraform-lambda.sh
+./scripts/setup-terraform-base.sh
 # or
-make setup-terraform-lambda
+make setup-terraform-base
 ```
 
 **What it does**:
 1. Reads project configuration from `bootstrap/terraform.tfvars` (if available)
 2. Creates `terraform/` directory structure
-3. Generates complete Terraform configuration for Lambda deployment:
+3. Generates base Terraform files needed by all services:
    - `terraform/main.tf` - Provider and backend configuration
-   - `terraform/variables.tf` - Variable definitions
-   - `terraform/lambda.tf` - Lambda function with container image
-   - `terraform/api-gateway.tf` - Optional API Gateway setup
+   - `terraform/variables.tf` - Common variable definitions
    - `terraform/outputs.tf` - Output values
+   - `terraform/api-gateway.tf` - API Gateway common definitions
    - `terraform/README.md` - Documentation
 4. Creates environment-specific variable files:
    - `terraform/environments/dev.tfvars`
    - `terraform/environments/test.tfvars`
    - `terraform/environments/prod.tfvars`
 
-**Generated infrastructure features**:
-- Lambda function using container images from ECR
-- Lambda Function URLs (no API Gateway needed by default)
-- CloudWatch Logs with JSON formatting and retention policies
-- Environment-specific memory/timeout configurations
-- Lifecycle rules for CI/CD compatibility
-- Optional API Gateway integration
-
 **When to run**:
-- After completing bootstrap setup
-- When starting a new Lambda-based project
-- To get example Terraform configuration for reference
-
-**Customization**:
-After generation, you can:
-- Edit environment variable files (`terraform/environments/*.tfvars`)
-- Modify Lambda configuration in `terraform/lambda.tf`
-- Add additional resources (DynamoDB, SQS, etc.)
-- Enable API Gateway by setting `enable_api_gateway = true`
+- **Once** after completing bootstrap setup
+- Before adding your first Lambda or AppRunner service
+- When starting a new project
 
 **Example workflow**:
 ```bash
-# 1. Generate application Terraform files
-make setup-terraform-lambda
+# 1. Run bootstrap first
+make bootstrap-apply
 
-# 2. Customize the generated files
-vim terraform/environments/dev.tfvars
+# 2. Generate backend configuration
+make setup-terraform-backend
 
-# 3. Build and push Docker image
-make docker-build
-make docker-push-dev
+# 3. Create base Terraform files (run this once)
+./scripts/setup-terraform-base.sh
 
-# 4. Deploy application
-make app-init-dev
-make app-plan-dev
-make app-apply-dev
+# 4. Now add services with setup-terraform-lambda.sh or setup-terraform-apprunner.sh
 ```
 
 ---
 
-### 4. `setup-terraform-apprunner.sh`
+### 4. `setup-terraform-lambda.sh`
 
-**Purpose**: Generates example Terraform configuration files for App Runner-based application infrastructure.
+**Purpose**: Generates Terraform configuration for individual Lambda services.
 
-**Location**: `scripts/setup-terraform-apprunner.sh`
+**Location**: `scripts/setup-terraform-lambda.sh`
+
+**Prerequisites**:
+- ✅ Base Terraform files created (run `setup-terraform-base.sh` first)
+- ✅ Service directory exists in `backend/<service-name>/`
 
 **Usage**:
 ```bash
-./scripts/setup-terraform-apprunner.sh
-# or
-make setup-terraform-apprunner
+# Syntax: ./scripts/setup-terraform-lambda.sh [SERVICE_NAME] [ENABLE_API_KEY]
+
+# Create Lambda configuration for 'api' service (with API key disabled)
+./scripts/setup-terraform-lambda.sh api false
+
+# Create Lambda configuration for 'worker' service (with API key enabled)
+./scripts/setup-terraform-lambda.sh worker true
+
+# Default (creates 'api' service with API key enabled)
+./scripts/setup-terraform-lambda.sh
 ```
 
 **What it does**:
-1. Reads project configuration from `bootstrap/terraform.tfvars` (if available)
-2. Creates `terraform/` directory structure
-3. Generates complete Terraform configuration for App Runner deployment:
-   - `terraform/main.tf` - Provider and backend configuration
-   - `terraform/variables.tf` - Variable definitions (CPU, memory, auto-scaling)
-   - `terraform/apprunner.tf` - App Runner service with container image
-   - `terraform/api-gateway.tf` - Optional API Gateway with HTTP_PROXY integration
-   - `terraform/outputs.tf` - Output values
-   - `terraform/README.md` - Documentation with App Runner vs Lambda comparison
-4. Creates environment-specific variable files:
-   - `terraform/environments/dev.tfvars`
-   - `terraform/environments/test.tfvars`
-   - `terraform/environments/prod.tfvars`
+1. Validates that `backend/<service-name>/` directory exists
+2. Creates `terraform/lambda-variables.tf` (if first Lambda service)
+3. Generates `terraform/lambda-<service>.tf` with Lambda function definition
+4. Appends API Gateway integration to `terraform/api-gateway.tf` (if it exists)
+5. Sets up path-based routing for the service
 
-**Generated infrastructure features**:
-- App Runner service using container images from ECR
-- Auto-scaling configuration (min/max instances, concurrency)
-- Health check configuration
-- CloudWatch Logs integration via IAM instance role
-- Environment-specific CPU/memory configurations
+**Generated infrastructure per service**:
+- Lambda function using container images from ECR
+- CloudWatch Logs with JSON formatting and retention policies
+- IAM execution role
+- API Gateway integration with path routing (`/<service>/*`)
+- Environment-specific memory/timeout configurations
 - Lifecycle rules for CI/CD compatibility
+
+**Example workflow for adding a new Lambda service**:
+```bash
+# 1. Create service directory and code
+mkdir -p backend/worker
+cp backend/api/main.py backend/worker/main.py
+cp backend/api/pyproject.toml backend/worker/pyproject.toml
+# Edit worker/main.py for your service logic
+
+# 2. Generate Terraform configuration
+./scripts/setup-terraform-lambda.sh worker false
+
+# 3. Build and push Docker image
+./scripts/docker-push.sh dev worker Dockerfile.lambda
+
+# 4. Deploy
+make app-apply-dev
+```
+
+**API Gateway Path Routing**:
+- First Lambda service (usually `api`) gets root path: `/`, `/*`
+- Additional services get prefixed paths: `/<service>/*`
+  - Example: `worker` → `/worker/health`, `/worker/jobs`
+
+---
+
+### 5. `setup-terraform-apprunner.sh`
+
+**Purpose**: Generates Terraform configuration for individual AppRunner services.
+
+**Location**: `scripts/setup-terraform-apprunner.sh`
+
+**Prerequisites**:
+- ✅ Base Terraform files created (run `setup-terraform-base.sh` first)
+- ✅ Service directory exists in `backend/<service-name>/`
+
+**Usage**:
+```bash
+# Syntax: ./scripts/setup-terraform-apprunner.sh [SERVICE_NAME]
+
+# Create AppRunner configuration for 'web' service
+./scripts/setup-terraform-apprunner.sh web
+
+# Create AppRunner configuration for 'admin' service
+./scripts/setup-terraform-apprunner.sh admin
+
+# Default (creates 'runner' service)
+./scripts/setup-terraform-apprunner.sh
+```
+
+**What it does**:
+1. Validates that `backend/<service-name>/` directory exists
+2. Creates `terraform/apprunner-variables.tf` (if first AppRunner service)
+3. Generates `terraform/apprunner-<service>.tf` with AppRunner service definition
+4. Optionally appends API Gateway integration to `terraform/api-gateway.tf`
+5. Sets up auto-scaling and health check configuration
+
+**Script prompts**:
+```
+Do you want to integrate this AppRunner service with API Gateway?
+This will make the service accessible via API Gateway at /<service>/*
+(y/N):
+```
+
+**Generated infrastructure per service**:
+- AppRunner service using container images from ECR
+- Auto-scaling configuration (min/max instances, concurrency)
+- Health check configuration (path, interval, timeout)
+- CloudWatch Logs integration via IAM instance role
 - Optional API Gateway integration with HTTP_PROXY
+- Lifecycle rules for CI/CD compatibility
 
-**When to run**:
-- After completing bootstrap setup with `enable_apprunner = true`
-- When starting a new containerized web application project
-- For long-running web services with WebSocket support
-- When you need minimal cold starts compared to Lambda
+**Example workflow for adding a new AppRunner service**:
+```bash
+# 1. Create service directory and code
+mkdir -p backend/web
+cp backend/runner/main.py backend/web/main.py
+cp backend/runner/pyproject.toml backend/web/pyproject.toml
+# Edit web/main.py for your service logic
 
-**App Runner vs Lambda**:
-Use **App Runner** when:
-- ✅ Building long-running web applications
-- ✅ Need WebSocket or streaming support
+# 2. Generate Terraform configuration
+./scripts/setup-terraform-apprunner.sh web
+# Answer 'y' to integrate with API Gateway
+
+# 3. Build and push Docker image
+./scripts/docker-push.sh dev web Dockerfile.apprunner
+
+# 4. Deploy (takes 3-5 minutes for AppRunner)
+make app-apply-dev
+```
+
+**API Gateway Integration**:
+- Choose 'y': Service accessible via API Gateway at `/<service>/*`
+- Choose 'N': Direct AppRunner URL only (e.g., `https://abc123.us-east-1.awsapprunner.com`)
+
+**AppRunner vs Lambda**:
+
+Use **AppRunner** when:
+- ✅ Long-running web applications
+- ✅ WebSocket or streaming support needed
 - ✅ Want consistent performance (minimal cold starts)
-- ✅ Prefer instance-based pricing over per-request pricing
-- ✅ Need full control over web server configuration
+- ✅ Need full control over web server
 
-Use **Lambda** (via `setup-terraform-lambda.sh`) when:
+Use **Lambda** when:
 - ✅ Event-driven workloads
 - ✅ Sporadic traffic patterns
 - ✅ Simple request/response APIs
 - ✅ Need massive auto-scaling
 
-**Customization**:
-After generation, you can:
-- Edit environment variable files (`terraform/environments/*.tfvars`)
-- Adjust CPU/memory sizing in `terraform/apprunner.tf`
-- Configure auto-scaling parameters (min/max instances, concurrency)
-- Customize health check settings
-- Enable API Gateway by setting `enable_api_gateway_standard = true`
-- Add additional resources (RDS, ElastiCache, etc.)
-
-**Example workflow**:
-```bash
-# 1. Generate App Runner Terraform files
-make setup-terraform-apprunner
-
-# 2. Customize the generated files
-vim terraform/environments/dev.tfvars
-
-# 3. Build and push Docker image
-make docker-build DOCKERFILE=Dockerfile.apprunner
-make docker-push-dev
-
-# 4. Deploy application
-make app-init-dev
-make app-plan-dev
-make app-apply-dev
-```
-
-**Key configuration variables**:
-```hcl
-# CPU/Memory sizing (see AWS App Runner documentation for valid combinations)
-apprunner_cpu    = "1024"  # 256, 512, 1024, 2048, 4096
-apprunner_memory = "2048"  # 512-12288 MB
-
-# Auto-scaling
-apprunner_min_instances  = 1
-apprunner_max_instances  = 10
-apprunner_max_concurrency = 100  # Concurrent requests per instance
-
-# Health checks
-health_check_path = "/health"
-health_check_interval = 10
-```
-
 ---
 
-### 5. `docker-push.sh`
+### 6. `docker-push.sh`
 
 **Purpose**: Build and push Docker images to Amazon ECR with proper tagging.
 
@@ -576,7 +603,7 @@ env:
 
 ---
 
-### 6. `test-api.sh`
+### 7. `test-api.sh`
 
 **Purpose**: Comprehensive automated testing of all API endpoints after deployment.
 
@@ -699,20 +726,53 @@ Testing: Validation error (missing required field)... ✓ PASS (HTTP 422)
 ## 🔄 Typical Workflow
 
 ### Initial Setup
+
 ```bash
-# 1. Deploy bootstrap
+# 1. Deploy bootstrap infrastructure
 make bootstrap-apply
 
-# 2. Generate backend configs
+# 2. Generate Terraform backend configuration
 make setup-terraform-backend
 
+# 3. Create base Terraform files (run once)
+./scripts/setup-terraform-base.sh
+
+# 4. Add your first service (Lambda or AppRunner)
+./scripts/setup-terraform-lambda.sh api false
+# or
+./scripts/setup-terraform-apprunner.sh runner
+
+# 5. Build and deploy
+./scripts/docker-push.sh dev api Dockerfile.lambda
+make app-init-dev app-apply-dev
+```
+
+### Adding Additional Services
+
+```bash
+# 1. Create service directory
+mkdir -p backend/worker
+cp -r backend/api/* backend/worker/
+
+# 2. Generate Terraform configuration
+./scripts/setup-terraform-lambda.sh worker
+
+# 3. Build and push
+./scripts/docker-push.sh dev worker Dockerfile.lambda
+
+# 4. Deploy
+make app-apply-dev
+```
+
 ### Daily Development
+
 ```bash
 # Build and push Docker image
 make docker-push-dev
 
-# Or push directly
-./scripts/docker-push.sh dev my-api Dockerfile.lambda
+# Or push directly for specific service
+./scripts/docker-push.sh dev api Dockerfile.lambda
+./scripts/docker-push.sh dev worker Dockerfile.lambda
 ```
 
 ---
@@ -720,14 +780,34 @@ make docker-push-dev
 ## 🛠️ Script Requirements
 
 ### `setup-pre-commit.sh`
+
 - ✅ `uv` installed
 - ✅ Git repository initialized
 - ✅ `pyproject.toml.example` (included in repo)
 
 ### `setup-terraform-backend.sh`
+
 - ✅ Bootstrap Terraform initialized and applied
 - ✅ `terraform` CLI installed
 - ✅ `jq` (optional, for JSON parsing)
+
+### `setup-terraform-base.sh`
+
+- ✅ Bootstrap Terraform applied
+- ✅ `terraform` CLI installed
+- ✅ `bootstrap/terraform.tfvars` configured
+
+### `setup-terraform-lambda.sh`
+
+- ✅ Base Terraform files created (`setup-terraform-base.sh` run)
+- ✅ Service directory exists in `backend/<service>/`
+- ✅ Bootstrap Terraform applied
+
+### `setup-terraform-apprunner.sh`
+
+- ✅ Base Terraform files created (`setup-terraform-base.sh` run)
+- ✅ Service directory exists in `backend/<service>/`
+- ✅ Bootstrap Terraform applied
 
 ### `docker-push.sh`
 - ✅ Bootstrap Terraform applied

@@ -63,8 +63,6 @@ Comprehensive documentation is available in the `docs/` directory:
 - [Terraform Bootstrap Guide](../docs/TERRAFORM-BOOTSTRAP.md) - Complete setup walkthrough
 - [API Endpoints](../docs/API-ENDPOINTS.md) - API documentation with testing
 - [Docker Multi-Architecture](../docs/DOCKER-MULTIARCH.md) - Multi-arch builds
-- [Deployment Status](../DEPLOYMENT-STATUS.md) - Current deployment info
-- [Recent Changes](../CHANGES.md) - Implementation summary
 - [Documentation Index](../docs/README.md) - All documentation
 
 ## Configuration Files

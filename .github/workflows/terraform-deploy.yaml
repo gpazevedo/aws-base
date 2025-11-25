@@ -1,0 +1,309 @@
+name: Terraform Deploy & Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - test
+          - production
+      action:
+        description: 'Terraform action'
+        required: true
+        default: 'plan'
+        type: choice
+        options:
+          - plan
+          - apply
+      service_filter:
+        description: 'Service to test after deployment (all, api, runner)'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - api
+          - runner
+  push:
+    branches: [main]
+    paths:
+      - 'terraform/**'
+      - '!terraform/README.md'
+      - '!terraform/**/*.md'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'terraform/**'
+      - '!terraform/README.md'
+      - '!terraform/**/*.md'
+
+env:
+  PROJECT_NAME: ${{ vars.PROJECT_NAME }}
+  AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  ENVIRONMENT: ${{ inputs.environment || 'dev' }}
+  TF_ACTION: ${{ inputs.action || 'plan' }}
+
+jobs:
+  terraform-validate-and-deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment || 'dev' }}
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: write  # For PR comments
+
+    outputs:
+      apply_status: ${{ steps.terraform-apply.outputs.status }}
+      changes_detected: ${{ steps.terraform-plan.outputs.changes }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/${{ env.PROJECT_NAME }}-github-actions-${{ env.ENVIRONMENT }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.6.6
+          terraform_wrapper: false
+
+      - name: Terraform Format Check
+        id: fmt
+        working-directory: terraform
+        run: |
+          terraform fmt -check -recursive
+        continue-on-error: true
+
+      - name: Terraform Init
+        id: init
+        working-directory: terraform
+        run: |
+          echo "Initializing Terraform for ${{ env.ENVIRONMENT }} environment..."
+          terraform init -backend-config=environments/${{ env.ENVIRONMENT }}-backend.hcl
+
+      - name: Terraform Validate
+        id: validate
+        working-directory: terraform
+        run: |
+          terraform validate
+
+      - name: Terraform Plan
+        id: terraform-plan
+        working-directory: terraform
+        run: |
+          echo "Running Terraform plan for ${{ env.ENVIRONMENT }} environment..."
+          terraform plan \
+            -var-file=environments/${{ env.ENVIRONMENT }}.tfvars \
+            -out=tfplan \
+            -no-color | tee plan_output.txt
+
+          # Check if there are changes
+          if grep -q "No changes" plan_output.txt; then
+            echo "changes=false" >> $GITHUB_OUTPUT
+            echo "::notice::No infrastructure changes detected"
+          else
+            echo "changes=true" >> $GITHUB_OUTPUT
+            echo "::notice::Infrastructure changes detected"
+          fi
+
+      - name: Comment PR with Terraform Plan
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const plan = fs.readFileSync('terraform/plan_output.txt', 'utf8');
+            const output = `#### Terraform Format and Style 🖌\`${{ steps.fmt.outcome }}\`
+            #### Terraform Initialization ⚙️\`${{ steps.init.outcome }}\`
+            #### Terraform Validation 🤖\`${{ steps.validate.outcome }}\`
+            #### Terraform Plan 📖\`${{ steps.terraform-plan.outcome }}\`
+
+            <details><summary>Show Plan</summary>
+
+            \`\`\`terraform
+            ${plan.substring(0, 65000)}
+            \`\`\`
+
+            </details>
+
+            *Environment: \`${{ env.ENVIRONMENT }}\`*
+            *Pusher: @${{ github.actor }}, Action: \`${{ github.event_name }}\`*`;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            });
+
+      - name: Terraform Apply
+        id: terraform-apply
+        if: |
+          (github.event_name == 'workflow_dispatch' && inputs.action == 'apply') ||
+          (github.event_name == 'push' && github.ref == 'refs/heads/main')
+        working-directory: terraform
+        run: |
+          echo "Applying Terraform changes for ${{ env.ENVIRONMENT }} environment..."
+
+          if terraform apply -auto-approve tfplan; then
+            echo "status=success" >> $GITHUB_OUTPUT
+            echo "::notice::Terraform apply completed successfully"
+          else
+            echo "status=failed" >> $GITHUB_OUTPUT
+            echo "::error::Terraform apply failed"
+            exit 1
+          fi
+
+      - name: Terraform Apply Summary
+        if: steps.terraform-apply.outcome == 'success'
+        working-directory: terraform
+        run: |
+          echo "✅ Terraform apply completed successfully!"
+          echo ""
+          echo "📊 Deployment Summary:"
+          echo "   Environment: ${{ env.ENVIRONMENT }}"
+          echo "   Project: ${{ env.PROJECT_NAME }}"
+          echo "   Region: ${{ env.AWS_REGION }}"
+          echo ""
+          echo "🌐 Infrastructure Outputs:"
+          terraform output -no-color
+
+      - name: Upload Terraform Plan
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan-${{ env.ENVIRONMENT }}
+          path: terraform/plan_output.txt
+          retention-days: 30
+
+  health-check:
+    needs: terraform-validate-and-deploy
+    if: |
+      needs.terraform-validate-and-deploy.outputs.apply_status == 'success' &&
+      needs.terraform-validate-and-deploy.outputs.changes_detected == 'true'
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment || 'dev' }}
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/${{ env.PROJECT_NAME }}-github-actions-${{ env.ENVIRONMENT }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.6.6
+          terraform_wrapper: false
+
+      - name: Install dependencies
+        run: |
+          # Install jq and bc for health check script
+          sudo apt-get update -qq && sudo apt-get install -y jq bc curl
+
+      - name: Initialize Terraform for outputs
+        working-directory: terraform
+        run: |
+          terraform init -backend-config=environments/${{ env.ENVIRONMENT }}-backend.hcl
+
+      - name: Wait for services to stabilize
+        run: |
+          echo "Waiting for services to fully stabilize after deployment..."
+          sleep 30
+
+      - name: Run health check tests
+        id: health-check
+        run: |
+          echo "Running health check tests..."
+          echo "Environment: ${{ env.ENVIRONMENT }}"
+          echo "Project: ${{ env.PROJECT_NAME }}"
+          echo "Service Filter: ${{ inputs.service_filter || 'all' }}"
+
+          chmod +x ./scripts/test-health.sh
+
+          if ./scripts/test-health.sh \
+            ${{ env.ENVIRONMENT }} \
+            ${{ env.PROJECT_NAME }} \
+            ${{ inputs.service_filter || 'all' }}; then
+            echo "status=success" >> $GITHUB_OUTPUT
+          else
+            echo "status=failed" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+      - name: Health Check Summary
+        if: success()
+        run: |
+          echo "✅ All health checks passed!"
+          echo ""
+          echo "📊 Test Summary:"
+          echo "   Environment: ${{ env.ENVIRONMENT }}"
+          echo "   Project: ${{ env.PROJECT_NAME }}"
+          echo "   Services Tested: ${{ inputs.service_filter || 'all' }}"
+          echo ""
+          echo "🎉 Infrastructure is healthy and ready for use!"
+
+      - name: Health Check Failure Notification
+        if: failure()
+        run: |
+          echo "❌ Health checks failed!"
+          echo ""
+          echo "::error::Infrastructure health checks did not pass"
+          echo ""
+          echo "💡 Troubleshooting steps:"
+          echo "   1. Check CloudWatch Logs for service errors"
+          echo "   2. Verify API Gateway configuration"
+          echo "   3. Ensure Lambda/AppRunner services are fully deployed"
+          echo "   4. Review Terraform outputs for correct URLs"
+          echo ""
+          echo "Run manually to debug:"
+          echo "   ./scripts/test-health.sh ${{ env.ENVIRONMENT }} ${{ env.PROJECT_NAME }} ${{ inputs.service_filter || 'all' }}"
+
+  deployment-summary:
+    needs: [terraform-validate-and-deploy, health-check]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deployment Status Summary
+        run: |
+          echo "╔════════════════════════════════════════════════════════════════╗"
+          echo "║              Terraform Deployment Summary                      ║"
+          echo "╚════════════════════════════════════════════════════════════════╝"
+          echo ""
+          echo "Environment: ${{ env.ENVIRONMENT }}"
+          echo "Project: ${{ env.PROJECT_NAME }}"
+          echo ""
+          echo "Terraform Validation: ${{ needs.terraform-validate-and-deploy.result }}"
+          echo "Health Checks: ${{ needs.health-check.result }}"
+          echo ""
+
+          if [ "${{ needs.terraform-validate-and-deploy.result }}" == "success" ] && \
+             [ "${{ needs.health-check.result }}" == "success" ]; then
+            echo "✅ Deployment completed successfully with healthy services!"
+            exit 0
+          elif [ "${{ needs.terraform-validate-and-deploy.result }}" == "success" ] && \
+               [ "${{ needs.health-check.result }}" == "skipped" ]; then
+            echo "✅ Terraform validation completed (no changes applied)"
+            exit 0
+          else
+            echo "❌ Deployment or health checks failed"
+            exit 1
+          fi

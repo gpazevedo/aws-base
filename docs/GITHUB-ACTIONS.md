@@ -10,6 +10,7 @@ This project includes GitHub Actions workflows for automated deployment:
 
 - **[deploy-lambda.yaml](../.github/workflows/deploy-lambda.yaml)** - Deploy Lambda services
 - **[deploy-apprunner.yaml](../.github/workflows/deploy-apprunner.yaml)** - Deploy App Runner services
+- **[terraform-deploy.yaml](../.github/workflows/terraform-deploy.yaml)** - Validate, deploy, and test infrastructure
 - **[deploy-eks.yaml](../.github/workflows/deploy-eks.yaml)** - Deploy EKS services (optional)
 - **[release-please.yml](../.github/workflows/release-please.yml)** - Automated versioning and releases
 
@@ -19,6 +20,15 @@ All workflows support:
 - ✅ **Manual triggers** - Deploy specific services or all services
 - ✅ **OIDC authentication** - No AWS credentials in code
 - ✅ **Matrix strategy** - Parallel service deployments
+- ✅ **Resource tagging** - Automatic tagging for cost allocation (see [TAGGING-STRATEGY.md](TAGGING-STRATEGY.md))
+
+---
+
+## Related Documentation
+
+- [TAGGING-STRATEGY.md](TAGGING-STRATEGY.md) - AWS resource tagging strategy
+- [MULTI-SERVICE-TESTING-GUIDE.md](MULTI-SERVICE-TESTING-GUIDE.md) - Testing multi-service deployments
+- [SCRIPTS.md](SCRIPTS.md) - Helper scripts including test-health.sh
 
 ---
 
@@ -28,6 +38,7 @@ All workflows support:
 - [Repository Configuration](#repository-configuration)
 - [Lambda Deployment Workflow](#lambda-deployment-workflow)
 - [AppRunner Deployment Workflow](#apprunner-deployment-workflow)
+- [Terraform Deployment Workflow](#terraform-deployment-workflow)
 - [Manual Deployment](#manual-deployment)
 - [Automated Deployment](#automated-deployment)
 - [Troubleshooting](#troubleshooting)
@@ -263,6 +274,77 @@ Services: api,worker,scheduler
 ```
 Services: (leave empty)
 ```
+
+---
+
+## Terraform Deployment Workflow
+
+### Terraform Workflow Overview
+
+**File:** [.github/workflows/terraform-deploy.yaml](../.github/workflows/terraform-deploy.yaml)
+
+**Triggers:**
+
+- Manual: `workflow_dispatch` with environment and action selection
+- Automatic: Push to `main` with changes in `terraform/**`
+- Pull Request: PRs targeting `main` with changes in `terraform/**`
+
+**Features:**
+
+- Validates and formats Terraform code
+- Creates execution plans with detailed output
+- Applies infrastructure changes (manual or automatic)
+- Runs health checks after successful deployment
+- Comments plan output on pull requests
+- Tests all deployed services using `test-health.sh`
+
+### Terraform Workflow Steps
+
+1. **Terraform Validation** - Format check, init, validate
+2. **Terraform Plan** - Creates execution plan, detects changes
+3. **PR Comment** - Posts plan output to pull request (if PR trigger)
+4. **Terraform Apply** - Applies changes (on workflow_dispatch with action=apply or push to main)
+5. **Health Check** - Runs `test-health.sh` to verify all services are healthy
+6. **Deployment Summary** - Overall status and service URLs
+
+### Example: Manual Terraform Deployment
+
+```bash
+# Via GitHub UI:
+Actions → Terraform Deploy & Test → Run workflow
+  Environment: dev
+  Action: plan  # or "apply" to deploy changes
+  Service filter: all  # or specific service like "api"
+```
+
+### Example: Automatic Terraform Deployment
+
+```bash
+# Make changes to Terraform configuration
+vim terraform/lambda-api.tf
+
+# Commit and push
+git add terraform/
+git commit -m "feat: update Lambda memory size"
+git push origin main
+
+# Workflow automatically:
+# 1. Validates Terraform
+# 2. Creates plan
+# 3. Applies changes (on main branch)
+# 4. Tests all services with test-health.sh
+```
+
+### Health Check Integration
+
+After successful Terraform apply, the workflow automatically:
+- Waits 30 seconds for services to stabilize
+- Runs `./scripts/test-health.sh` to verify deployment
+- Tests all Lambda and AppRunner services
+- Validates API Gateway routing
+- Reports pass/fail status
+
+See [MULTI-SERVICE-TESTING-GUIDE.md](MULTI-SERVICE-TESTING-GUIDE.md) for detailed testing documentation.
 
 ---
 

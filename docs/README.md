@@ -27,13 +27,14 @@ Complete documentation for the AWS Bootstrap Infrastructure project.
 
 ## Testing
 
-- **[Multi-Service Testing Guide](MULTI_SERVICE_TESTING_GUIDE.md)** - Comprehensive testing scenarios for API Gateway
+- **[Multi-Service Testing Guide](MULTI-SERVICE-TESTING-GUIDE.md)** - Comprehensive testing scenarios for API Gateway
 
 ## Configuration
 
 - **[Pre-commit Hooks](PRE-COMMIT.md)** - Code quality automation
 - **[Release Please](RELEASE-PLEASE.md)** - Automated releases and versioning
 - **[Monitoring](MONITORING.md)** - CloudWatch, X-Ray, and observability
+- **[Tagging Strategy](TAGGING-STRATEGY.md)** - AWS resource tagging for cost allocation and organization
 
 ## Troubleshooting
 

@@ -4,6 +4,12 @@
 
 This project includes several automation scripts to streamline development and deployment workflows.
 
+## Related Documentation
+
+- [TAGGING-STRATEGY.md](TAGGING-STRATEGY.md) - AWS resource tagging strategy
+- [MULTI-SERVICE-TESTING-GUIDE.md](MULTI-SERVICE-TESTING-GUIDE.md) - Multi-service testing scenarios
+- [GITHUB-ACTIONS.md](GITHUB-ACTIONS.md) - CI/CD workflows
+
 ---
 
 ## 📜 Available Scripts
@@ -603,7 +609,157 @@ env:
 
 ---
 
-### 7. `test-api.sh`
+### 7. `test-health.sh`
+
+**Purpose**: Multi-service health check testing for deployed Lambda and AppRunner services.
+
+**Location**: `scripts/test-health.sh`
+
+**Usage**:
+
+```bash
+# Test all services in dev environment (auto-detect project name)
+./scripts/test-health.sh
+
+# Test all services in production
+./scripts/test-health.sh prod
+
+# Test specific service
+./scripts/test-health.sh dev fingus api
+
+# Test all services with explicit project name
+./scripts/test-health.sh dev fingus all
+```
+
+**What it does**:
+
+1. Auto-discovers deployed services from Terraform outputs
+2. Detects Lambda and AppRunner services dynamically
+3. Tests via API Gateway (path-based routing) or direct URLs
+4. Validates health, liveness, and readiness endpoints
+5. Checks response times and JSON field validation
+6. Tests OpenAPI/Swagger documentation endpoints
+7. Provides color-coded pass/fail results with detailed output
+
+**Features**:
+
+- ✅ **Auto-discovery**: Automatically finds all deployed services
+- ✅ **Path routing awareness**: Lambda 'api' uses root path (/), others use /{service}
+- ✅ **Deployment mode detection**: API Gateway Standard vs Direct Access
+- ✅ **Service filtering**: Test specific services or all services
+- ✅ **CI/CD friendly**: Exit codes (0=success, 1=failure)
+- ✅ **Detailed reporting**: Response times, JSON validation, endpoint URLs
+
+**Service Discovery**:
+
+The script automatically discovers services by parsing Terraform outputs:
+
+- **Lambda services**: Detected from `lambda_{service}_function_name` outputs
+- **AppRunner services**: Detected from `apprunner_{service}_url` outputs
+- **Path routing**: Automatically determines correct path for each service
+  - Lambda 'api': Root path (/)
+  - Other Lambda services: Path prefix (/{service})
+  - AppRunner services: Path prefix (/{service})
+
+**Example Output**:
+
+```text
+╔════════════════════════════════════════════════════════════════╗
+║         Health Check Test - Multi-Service Infrastructure       ║
+╚════════════════════════════════════════════════════════════════╝
+
+Environment: dev
+Project:     fingus
+
+🔍 Discovering deployed services from Terraform...
+
+✅ Discovered services:
+   - api (Lambda) - Root path (/)
+   - worker (Lambda) - Path prefix (/worker)
+   - runner (AppRunner) - Path prefix (/runner)
+
+Service(s):  all (3 services)
+
+✅ API Gateway URL: https://abc123.execute-api.us-east-1.amazonaws.com
+   Mode: API Gateway (Standard Entry Point)
+
+╔════════════════════════════════════════════════════════════════╗
+║                    Running Health Check Tests                  ║
+╚════════════════════════════════════════════════════════════════╝
+
+━━━ Testing api Lambda service (via API Gateway) ━━━
+
+✅ api: Health check (200) - Response time: 0.234s
+✅ api: Liveness probe (200)
+✅ api: Readiness probe (200)
+✅ api: Health status field matches "healthy"
+✅ api: OpenAPI/Swagger endpoint (200)
+✅ api: Response time (0.234s < 3.0s)
+
+━━━ Testing worker Lambda service (via API Gateway) ━━━
+
+✅ worker: Health check (200) - Response time: 0.156s
+✅ worker: Liveness probe (200)
+✅ worker: Readiness probe (200)
+✅ worker: Health status field matches "healthy"
+✅ worker: OpenAPI/Swagger endpoint (200)
+✅ worker: Response time (0.156s < 3.0s)
+
+╔════════════════════════════════════════════════════════════════╗
+║              ✅ All Tests Passed! Services Healthy              ║
+╚════════════════════════════════════════════════════════════════╝
+
+📊 Deployment Information:
+   Environment:     dev
+   Project:         fingus
+   Deployment Mode: api-gateway-standard
+   Services Tested: 3 (api worker runner)
+
+🌐 API Gateway: https://abc123.execute-api.us-east-1.amazonaws.com
+📍 Service Endpoints:
+   - api: https://abc123.execute-api.us-east-1.amazonaws.com/health
+   - worker: https://abc123.execute-api.us-east-1.amazonaws.com/worker/health
+   - runner: https://abc123.execute-api.us-east-1.amazonaws.com/runner/health
+```
+
+**When to run**:
+
+- After deploying infrastructure with Terraform
+- In CI/CD pipelines (terraform-deploy.yaml workflow)
+- After updating service code
+- When troubleshooting deployment issues
+- Before promoting to production
+
+**Integration with CI/CD**:
+
+The script is automatically run by the `terraform-deploy.yaml` workflow after successful Terraform apply:
+
+```yaml
+- name: Run health check tests
+  run: |
+    ./scripts/test-health.sh \
+      ${{ env.ENVIRONMENT }} \
+      ${{ env.PROJECT_NAME }} \
+      ${{ inputs.service_filter || 'all' }}
+```
+
+See [GITHUB-ACTIONS.md](GITHUB-ACTIONS.md#terraform-deployment-workflow) for workflow details.
+
+**Prerequisites**:
+
+- `jq` - JSON processor
+- `curl` - HTTP client
+- Terraform initialized and outputs available
+
+**Related Documentation**:
+
+- [MULTI-SERVICE-TESTING-GUIDE.md](MULTI-SERVICE-TESTING-GUIDE.md) - Comprehensive testing scenarios
+- [GITHUB-ACTIONS.md](GITHUB-ACTIONS.md) - CI/CD workflow integration
+- [TAGGING-STRATEGY.md](TAGGING-STRATEGY.md) - Resource tagging (applied to all tested services)
+
+---
+
+### 8. `test-api.sh`
 
 **Purpose**: Comprehensive automated testing of all API endpoints after deployment.
 

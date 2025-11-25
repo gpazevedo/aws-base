@@ -16,7 +16,7 @@ API Gateway (Single Entry Point)
 ├── /{proxy+}          → Lambda 'api' service
 ├── /worker/*          → Lambda 'worker' service
 ├── /scheduler/*       → Lambda 'scheduler' service
-├── /apprunner/*       → AppRunner 'apprunner' service
+├── /runner/*          → AppRunner 'runner' service
 ├── /web/*             → AppRunner 'web' service
 └── /admin/*           → AppRunner 'admin' service
 ```
@@ -32,7 +32,7 @@ API Gateway (Single Entry Point)
 
 **AppRunner Services:**
 - All AppRunner services use path prefix
-  - `/apprunner/*` → apprunner service
+  - `/runner/*` → runner service
   - `/web/*` → web service
   - `/admin/*` → admin service
 
@@ -47,7 +47,7 @@ terraform/
 │   └── module "api_gateway_apprunner_*"    # AppRunner integrations
 ├── lambda-api.tf                            # Lambda 'api' service
 ├── lambda-worker.tf                         # Lambda 'worker' service
-├── apprunner-apprunner.tf                   # AppRunner 'apprunner' service
+├── apprunner-runner.tf                      # AppRunner 'runner' service
 └── modules/
     ├── api-gateway-shared/                  # Shared API Gateway module
     ├── api-gateway-lambda-integration/      # Lambda integration module
@@ -77,7 +77,7 @@ terraform/
 
 ```bash
 # Create AppRunner services
-./scripts/setup-terraform-apprunner.sh apprunner
+./scripts/setup-terraform-apprunner.sh runner
 ./scripts/setup-terraform-apprunner.sh web
 ./scripts/setup-terraform-apprunner.sh admin
 
@@ -90,6 +90,7 @@ terraform/
 1. Creates `apprunner-{service}.tf` with AppRunner service definition
 2. Optionally appends AppRunner integration to `api-gateway.tf`
 3. Always sets `path_prefix="{service}"` for AppRunner services
+4. Creates dedicated output for the AppRunner service URL
 
 ## Deployment Workflow
 
@@ -113,7 +114,7 @@ terraform apply
 ./scripts/setup-terraform-lambda.sh worker
 
 # AppRunner services
-./scripts/setup-terraform-apprunner.sh apprunner  # Answer 'y' to API Gateway prompt
+./scripts/setup-terraform-apprunner.sh runner  # Answer 'y' to API Gateway prompt
 ```
 
 ### 3. Build and Push Images
@@ -124,7 +125,7 @@ terraform apply
 ./scripts/docker-push.sh dev worker Dockerfile.lambda
 
 # AppRunner images (amd64)
-./scripts/docker-push.sh dev apprunner Dockerfile.apprunner
+./scripts/docker-push.sh dev runner Dockerfile.apprunner
 ```
 
 ### 4. Deploy Infrastructure
@@ -165,15 +166,15 @@ make test-lambda-worker
 ### Test AppRunner Services
 
 ```bash
-# 'apprunner' service (path prefix)
-curl $PRIMARY_URL/apprunner/health
-curl "$PRIMARY_URL/apprunner/greet?name=Claude"
+# 'runner' service (path prefix)
+curl $PRIMARY_URL/runner/health
+curl "$PRIMARY_URL/runner/greet?name=Claude"
 
 # 'web' service (path prefix)
 curl $PRIMARY_URL/web/health
 
 # Or use make targets
-make test-apprunner-apprunner
+make test-apprunner-runner
 make test-apprunner-web
 ```
 
@@ -183,10 +184,10 @@ AppRunner services also have direct URLs (bypassing API Gateway):
 
 ```bash
 # Get direct URL
-APPRUNNER_URL=$(cd terraform && terraform output -raw apprunner_apprunner_url)
+RUNNER_URL=$(cd terraform && terraform output -raw apprunner_runner_url)
 
 # Test directly
-curl $APPRUNNER_URL/health
+curl $RUNNER_URL/health
 ```
 
 ## Configuration
@@ -301,7 +302,7 @@ module "api_gateway_shared" {
   integration_ids = compact([
     try(module.api_gateway_lambda_api[0].integration_id, ""),
     try(module.api_gateway_lambda_worker[0].integration_id, ""),
-    try(module.api_gateway_apprunner_apprunner[0].integration_id, "")
+    try(module.api_gateway_apprunner_runner[0].integration_id, "")
   ])
 }
 ```
@@ -341,7 +342,7 @@ The `integration_ids` parameter creates implicit dependencies, ensuring integrat
 
 **Issue:** `{"message": "Missing Authentication Token"}`
 
-**Solution:** Check path routing - AppRunner services need `/apprunner/path` not `/path`
+**Solution:** Check path routing - AppRunner services need `/<service>/path` not `/path`
 
 ### Integration Circular Dependency
 
@@ -356,7 +357,7 @@ The `integration_ids` parameter creates implicit dependencies, ensuring integrat
 **Solution:**
 1. Verify AppRunner service is running: `terraform output apprunner_*_status`
 2. Check health endpoint directly: `curl $(terraform output -raw apprunner_*_url)/health`
-3. Verify path includes service prefix: `/apprunner/health` not `/health`
+3. Verify path includes service prefix: `/runner/health` not `/health`
 
 ## Resources
 

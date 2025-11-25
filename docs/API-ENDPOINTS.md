@@ -55,7 +55,7 @@ terraform/
 - **AppRunner 'runner' service** → `/runner/*` paths
 - **AppRunner 'web' service** → `/web/*` paths
 
-For troubleshooting API Gateway issues, see **[API Gateway Troubleshooting Guide](TROUBLESHOOTING-API-GATEWAY.md)**.
+For troubleshooting API Gateway issues, see **[Troubleshooting Guide](TROUBLESHOOTING.md)**.
 
 ---
 
@@ -241,7 +241,7 @@ GET /greet?name=Alice
 curl https://<YOUR-PROJECT>-api.execute-api.us-east-1.amazonaws.com/greet
 # Response: {"message": "Hello, World!", "version": "0.1.0"}
 
-# Custom name
+# Custom namee
 curl https://<YOUR-PROJECT>-api.execute-api.us-east-1.amazonaws.com/greet?name=Alice
 # Response: {"message": "Hello, Alice!", "version": "0.1.0"}
 ```

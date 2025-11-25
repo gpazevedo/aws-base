@@ -17,8 +17,7 @@ Complete documentation for the AWS Bootstrap Infrastructure project.
 ## Architecture
 
 - **[Multi-Service Architecture](MULTI-SERVICE-ARCHITECTURE.md)** - Path-based routing for Lambda and AppRunner services
-- **[Docker Multi-Architecture](DOCKER-ARCHITECTURE.md)** - ARM64 vs AMD64 builds for different services
-- **[Docker Multi-Arch Details](DOCKER-MULTIARCH.md)** - Detailed multi-architecture Docker guide
+- **[Docker Guide](DOCKER.md)** - Architecture strategy, multi-arch builds, and troubleshooting
 
 ## Deployment
 
@@ -38,8 +37,7 @@ Complete documentation for the AWS Bootstrap Infrastructure project.
 
 ## Troubleshooting
 
-- **[API Gateway Troubleshooting](TROUBLESHOOTING-API-GATEWAY.md)** - Common API Gateway issues and solutions
-- **[Docker Dependencies](TROUBLESHOOTING-DOCKER-DEPENDENCIES.md)** - Fix import errors and dependency issues
+- **[Troubleshooting Guide](TROUBLESHOOTING.md)** - Solutions for API Gateway, Docker, and deployment issues
 
 ## Quick Links
 
@@ -50,8 +48,8 @@ Complete documentation for the AWS Bootstrap Infrastructure project.
 | Add AppRunner services | [Multi-Service Architecture](MULTI-SERVICE-ARCHITECTURE.md) |
 | Setup CI/CD pipelines | [GitHub Actions](GITHUB-ACTIONS.md) |
 | Test API endpoints | [API Endpoints](API-ENDPOINTS.md) |
-| Build multi-arch Docker | [Docker Architecture](DOCKER-ARCHITECTURE.md) |
-| Fix API Gateway issues | [API Gateway Troubleshooting](TROUBLESHOOTING-API-GATEWAY.md) |
+| Build multi-arch Docker | [Docker Guide](DOCKER.md) |
+| Fix common issues | [Troubleshooting Guide](TROUBLESHOOTING.md) |
 | Add new services | [Adding Services](ADDING-SERVICES.md) |
 | Integrate AWS services | [AWS Services Integration](AWS-SERVICES-INTEGRATION.md) |
 

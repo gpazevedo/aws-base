@@ -46,9 +46,16 @@ Bootstrap AWS projects with Python 3.13, `uv` dependency management, GitHub Acti
 ## 📋 Prerequisites
 
 - AWS Account with admin access
+- [Python](docs/INSTALLATION.md#python) >= 3.11
+- [Git](docs/INSTALLATION.md#git)
+- [uv](docs/INSTALLATION.md#uv-python-package-manager) (Python Package Manager)
+- [Pyright](docs/INSTALLATION.md#pyright-type-checker) (Type Checker)
+- [Ruff](docs/INSTALLATION.md#ruff-python-linterformatter) (Linter/Formatter)
+- [Make](docs/INSTALLATION.md#make)
+- [Docker](docs/INSTALLATION.md#docker)
+- [AWS CLI](docs/INSTALLATION.md#aws-cli)
 - [Terraform](docs/INSTALLATION.md#terraform) >= 1.13.0
-- [AWS CLI](docs/INSTALLATION.md#aws-cli) configured
-- [uv](docs/INSTALLATION.md#uv) for Python: `curl -LsSf https://astral.sh/uv/install.sh | sh`
+- [tflint](docs/INSTALLATION.md#tflint-terraform-linter) (Terraform Linter)
 - GitHub repository
 
 **📚 Detailed installation:** [INSTALLATION.md](docs/INSTALLATION.md)
@@ -269,7 +276,7 @@ Then push to deploy automatically:
 git add . && git commit -m "Initial setup" && git push origin main
 ```
 
-**✅ Done!** See [TERRAFORM-BOOTSTRAP.md](docs/TERRAFORM-BOOTSTRAP.md) for deep dive.
+**✅ Done!** See [GITHUB-ACTIONS.md](docs/GITHUB-ACTIONS.md) for deep dive.
 
 ---
 
@@ -294,7 +301,7 @@ docker run -p 9000:8080 <YOUR-PROJECT>:amd64-latest
 ./scripts/docker-push.sh dev api Dockerfile.eks        # Builds arm64
 ```
 
-**📖 Details:** [Docker Architecture Selection](docs/DOCKER-ARCHITECTURE.md)
+**📖 Details:** [Docker Guide](docs/DOCKER.md)
 
 ---
 
@@ -438,7 +445,7 @@ ecr_repositories = ["web-frontend"]  # Additional ECR repo
 
 | Issue | Solution |
 |-------|----------|
-| Missing dependencies in Lambda | See [Docker Dependencies Guide](docs/TROUBLESHOOTING-DOCKER-DEPENDENCIES.md) |
+| Missing dependencies in Lambda | See [Troubleshooting Guide](docs/TROUBLESHOOTING.md) |
 | Bucket already exists | Change `state_bucket_name` (must be globally unique) |
 | API Gateway 403 | Check Lambda permissions: `aws_lambda_permission.api_gateway` |
 | No endpoint | Enable either `enable_api_gateway_standard` or `enable_direct_access` |
@@ -446,8 +453,8 @@ ecr_repositories = ["web-frontend"]  # Additional ECR repo
 | EKS nodes not joining | Check security groups & VPC NAT gateway |
 
 **📖 Guides:**
-- [Docker Dependencies](docs/TROUBLESHOOTING-DOCKER-DEPENDENCIES.md) - Fix import errors
-- [API Gateway](docs/TROUBLESHOOTING-API-GATEWAY.md) - API Gateway issues
+
+- [Troubleshooting Guide](docs/TROUBLESHOOTING.md) - Common issues and solutions
 
 ---
 
@@ -461,14 +468,14 @@ ecr_repositories = ["web-frontend"]  # Additional ECR repo
 ### Advanced
 - [GitHub Actions CI/CD](docs/GITHUB-ACTIONS.md) - Automated deployment workflows
 - [Incremental Adoption](docs/INCREMENTAL-ADOPTION.md) - Start small, scale later
-- [Docker Multi-Arch](docs/DOCKER-MULTIARCH.md) - ARM64 builds
+
 - [Pre-commit Hooks](docs/PRE-COMMIT.md) - Code quality
 - [Release Please](docs/RELEASE-PLEASE.md) - Automated releases
 - [Monitoring](docs/MONITORING.md) - CloudWatch & X-Ray
 
 ### Reference
 - [Scripts Documentation](docs/SCRIPTS.md) - All helper scripts
-- [Docker Architecture Selection](docs/DOCKER-ARCHITECTURE.md) - Architecture enforcement
+- [Docker Guide](docs/DOCKER.md) - Architecture enforcement
 
 ---
 

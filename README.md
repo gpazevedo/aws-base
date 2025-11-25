@@ -181,7 +181,7 @@ curl "$PRIMARY_URL/inter-service?service_url=${RUNNER_URL}/health"
   },
   "status_code": 200,
   "response_time_ms": 45.67,
-  "target_url": "https://m269wkmi93.us-east-1.awsapprunner.com/health"
+  "target_url": "https://<unique-id>.us-east-1.awsapprunner.com/health"
 }
 ```
 
@@ -361,9 +361,9 @@ Organize services in `backend/`:
 ```bash
 backend/
 ├── api/          # API service (Lambda/API Gateway)
-├── runner/       # AppRunner service (long-running web app)
-├── worker/       # Background worker
-└── scheduler/    # Scheduled jobs
+├── runner/       # Runner service (AppRunner - long-running web app)
+├── worker/       # Worker service (Lambda - background jobs)
+└── scheduler/    # Scheduler service (Lambda - scheduled tasks)
 ```
 
 Build & deploy individually:
@@ -380,10 +380,11 @@ Images tagged: `{service}-{env}-{datetime}-{sha}` (e.g., `runner-dev-2025-11-22-
 
 **Service-to-Service Communication:**
 
-- Lambda services accessed via API Gateway root paths: `/health`, `/api-health`
-- AppRunner services accessed via path prefix: `/runner/health`, `/web/health`, etc.
-- Both services use `httpx` for async HTTP communication
-- Configure service URLs via environment variables or API Gateway URL
+- Lambda 'api' service accessed via root paths: `/health`, `/greet`
+- Additional Lambda services accessed via path prefix: `/worker/health`, `/scheduler/status`
+- AppRunner services accessed via path prefix: `/runner/health`, `/web/health`
+- All services use `httpx` for async HTTP communication
+- Service URLs available via Terraform outputs
 
 ---
 

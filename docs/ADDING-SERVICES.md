@@ -1117,8 +1117,9 @@ Services are automatically routed based on name:
 | `api` | `/`, `/*` | N/A (first Lambda gets root) |
 | `worker` | `/worker/*` | `/worker/*` |
 | `scheduler` | `/scheduler/*` | `/scheduler/*` |
-| `web` | `/web/*` | `/web/*` |
-| `admin` | `/admin/*` | `/admin/*` |
+| `runner` | N/A | `/runner/*` |
+| `web` | N/A | `/web/*` |
+| `admin` | N/A | `/admin/*` |
 
 **Important:** Only the **first Lambda service** (typically `api`) gets the root path `/`. All other services use path prefixes.
 

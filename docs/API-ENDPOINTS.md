@@ -52,7 +52,7 @@ terraform/
 
 - **Lambda 'api' service** → Root path: `/`, `/health`, `/greet`
 - **Lambda 'worker' service** → `/worker/*` paths
-- **AppRunner 'apprunner' service** → `/apprunner/*` paths
+- **AppRunner 'runner' service** → `/runner/*` paths
 - **AppRunner 'web' service** → `/web/*` paths
 
 For troubleshooting API Gateway issues, see **[API Gateway Troubleshooting Guide](TROUBLESHOOTING-API-GATEWAY.md)**.
@@ -742,15 +742,15 @@ curl $PRIMARY_URL/worker/health       # 'worker' service health
 curl $PRIMARY_URL/scheduler/status    # 'scheduler' service status
 
 # Test AppRunner services (path prefix routing)
-curl $PRIMARY_URL/apprunner/health    # AppRunner 'apprunner' service
-curl "$PRIMARY_URL/apprunner/greet?name=Claude"  # AppRunner greet endpoint
+curl $PRIMARY_URL/runner/health       # AppRunner 'runner' service
+curl "$PRIMARY_URL/runner/greet?name=Claude"  # AppRunner greet endpoint
 curl $PRIMARY_URL/web/health          # AppRunner 'web' service
 curl $PRIMARY_URL/admin/health        # AppRunner 'admin' service
 
 # Or use make targets
 make test-lambda-api                  # Test 'api' Lambda service
 make test-lambda-worker               # Test 'worker' Lambda service
-make test-apprunner-apprunner         # Test 'apprunner' AppRunner service
+make test-apprunner-runner            # Test 'runner' AppRunner service
 make test-apprunner-web               # Test 'web' AppRunner service
 ```
 
@@ -758,7 +758,7 @@ make test-apprunner-web               # Test 'web' AppRunner service
 
 - First Lambda service (`api`) handles root path: `/`, `/health`, `/greet`, etc.
 - Additional Lambda services use path prefix: `/worker/*`, `/scheduler/*`
-- AppRunner services use path prefix: `/apprunner/*`, `/web/*`, `/admin/*`
+- AppRunner services use path prefix: `/runner/*`, `/web/*`, `/admin/*`
 - All services accessible through single API Gateway endpoint
 
 ---

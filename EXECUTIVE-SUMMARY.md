@@ -326,7 +326,7 @@ make docker-push-dev     # Build and push containers
 ### Current Production Deployment
 
 **Infrastructure:**
-- API Gateway: `https://10p6i9glng.execute-api.us-east-1.amazonaws.com/dev`
+- API Gateway: `https://<api-id>.execute-api.us-east-1.amazonaws.com/dev`
 - Lambda 'api' service: 512MB, arm64, <100ms response time (warm)
 - AppRunner 'runner' service: 1 vCPU, 2GB, <200ms response time
 - All health endpoints: ✅ Operational

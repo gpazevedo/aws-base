@@ -328,6 +328,18 @@ variable "lambda_use_container_image" {
 # Tags
 # =============================================================================
 
+variable "cost_center" {
+  description = "Cost center for resource tagging and cost allocation"
+  type        = string
+  default     = "engineering"
+}
+
+variable "team" {
+  description = "Team responsible for the resources"
+  type        = string
+  default     = "platform"
+}
+
 variable "additional_tags" {
   description = "Additional tags to apply to all resources"
   type        = map(string)

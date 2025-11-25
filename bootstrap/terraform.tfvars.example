@@ -91,14 +91,21 @@ use_custom_iam_policies = true
 max_session_duration = 3600  # 1 hour (3600 to 43200)
 
 # =============================================================================
-# Additional Tags
+# Resource Tagging
 # =============================================================================
 
+# Cost center for billing and cost allocation
+cost_center = "engineering"
+
+# Team responsible for the resources
+team = "platform"
+
+# Additional custom tags (optional)
 additional_tags = {
-  # Example tags:
-  # Team        = "platform"
-  # CostCenter  = "engineering"
-  # Environment = "bootstrap"
+  # Add any custom tags here:
+  # Owner       = "john.doe@company.com"
+  # Compliance  = "SOC2"
+  # DataClass   = "internal"
 }
 
 # =============================================================================

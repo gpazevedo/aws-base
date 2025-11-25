@@ -10,6 +10,14 @@ This guide provides comprehensive testing scenarios for the multi-service API Ga
 - AWS credentials configured
 - Docker installed and logged into ECR
 - Project directory structure in place
+- Resource tagging configured (see [TAGGING-STRATEGY.md](TAGGING-STRATEGY.md))
+
+## Related Documentation
+
+- [TAGGING-STRATEGY.md](TAGGING-STRATEGY.md) - AWS resource tagging for cost allocation
+- [GITHUB-ACTIONS.md](GITHUB-ACTIONS.md) - CI/CD workflows
+- [SCRIPTS.md](SCRIPTS.md) - Helper scripts reference
+- [MULTI-SERVICE-ARCHITECTURE.md](MULTI-SERVICE-ARCHITECTURE.md) - Architecture overview
 
 ## Test Scenario 1: Single Lambda Service (Root Path)
 

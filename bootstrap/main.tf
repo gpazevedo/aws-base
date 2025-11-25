@@ -48,6 +48,8 @@ provider "aws" {
     tags = merge(
       {
         Project       = var.project_name
+        CostCenter    = var.cost_center
+        Team          = var.team
         ManagedBy     = "terraform-bootstrap"
         Purpose       = "cicd-infrastructure"
         Terraform     = "true"

@@ -418,11 +418,15 @@ api_key_name                = ""     # Auto-generated if not specified
 api_usage_plan_quota_limit  = 0      # Max requests per period (0 = unlimited)
 api_usage_plan_quota_period = "MONTH"
 
-# Additional tags
-additional_tags = {
-  CostCenter = "engineering"
-  Team       = "platform"
-}
+# =============================================================================
+# Resource Tagging
+# =============================================================================
+
+cost_center = "engineering"
+team        = "platform"
+
+# Additional tags (optional)
+additional_tags = {}
 EOF
   else
     echo "ℹ️  Skipping ${ENV}.tfvars (already exists)"

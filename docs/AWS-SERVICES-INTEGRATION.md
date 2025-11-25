@@ -45,11 +45,11 @@ AWS services like SQS, DynamoDB, S3, and RDS can be integrated with your Lambda 
 ```
 ┌─────────────────────────────────────┐
 │  Lambda/AppRunner Service           │
-│  ┌─────────────────────────────┐   │
-│  │ Application Code            │   │
-│  │  ├─ boto3 SDK               │   │
-│  │  └─ Environment Variables   │   │
-│  └─────────────────────────────┘   │
+│  ┌─────────────────────────────┐    │
+│  │ Application Code            │    │
+│  │  ├─ boto3 SDK               │    │
+│  │  └─ Environment Variables   │    │
+│  └─────────────────────────────┘    │
 │           ↓ (IAM permissions)       │
 └─────────────────────────────────────┘
            ↓

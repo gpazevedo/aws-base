@@ -92,24 +92,30 @@ aws sts get-caller-identity  # Verify AWS credentials
 make bootstrap-create bootstrap-init bootstrap-apply
 ```
 
-### 4. Deploy API Service (Lambda Example)
+### 4. Setup Terraform Backend
+
+Create the backend configuration that all environments will use:
+
+```bash
+make setup-terraform-backend
+```
+
+### 5. Deploy API Service (Lambda Example)
 
 Start with the API service to learn the basics:
 
 ```bash
-make setup-terraform-backend
-
-# Build & push Docker image for 'api' service
-./scripts/docker-push.sh dev api Dockerfile.lambda
-
-# Create Lambda service infrastructure for 'api' service
+# Step 1: Create Lambda service infrastructure for 'api' service
 ./scripts/setup-terraform-lambda.sh api false  # Disable API Key for quick start
 
-# Deploy infrastructure
+# Step 2: Build & push Docker image for 'api' service
+./scripts/docker-push.sh dev api Dockerfile.lambda
+
+# Step 3: Deploy infrastructure
 make app-init-dev app-apply-dev
 ```
 
-### 5. Test API Service
+### 6. Test API Service
 
 ```bash
 # Get endpoint
@@ -128,26 +134,26 @@ make test-api
 >
 > **📖 All endpoints:** [API-ENDPOINTS.md](docs/API-ENDPOINTS.md)
 
-### 6. Deploy Runner Service (AppRunner Example)
+### 7. Deploy Runner Service (AppRunner Example)
 
 Now add the runner service to demonstrate service-to-service communication:
 
 ```bash
-# Build & push Docker image for 'runner' service
-./scripts/docker-push.sh dev runner Dockerfile.apprunner
-
-# Create AppRunner service infrastructure for 'runner' service
+# Step 1: Create AppRunner service infrastructure for 'runner' service
 ./scripts/setup-terraform-apprunner.sh runner
 
 # When prompted, optionally add to API Gateway
 # y = Add to API Gateway with path /runner (recommended for this example)
 # N = Access directly via AppRunner URL
 
-# Deploy runner service
+# Step 2: Build & push Docker image for 'runner' service
+./scripts/docker-push.sh dev runner Dockerfile.apprunner
+
+# Step 3: Deploy runner service
 make app-init-dev app-apply-dev
 ```
 
-### 7. Test Runner Service
+### 8. Test Runner Service
 
 ```bash
 # Get runner service URL
@@ -158,7 +164,7 @@ curl $RUNNER_URL/health
 curl "$RUNNER_URL/greet?name=Runner"
 ```
 
-### 8. Test Service-to-Service Communication
+### 9. Test Service-to-Service Communication
 
 The API service has an `/inter-service` endpoint that calls other services, demonstrating how services can communicate:
 
@@ -194,22 +200,22 @@ curl "$PRIMARY_URL/inter-service?service_url=${RUNNER_URL}/health"
 
 > **🔄 Inter-Service Communication:** The `/inter-service` endpoint accepts any service URL as a query parameter, making it flexible for calling different services. No environment variables or hardcoded URLs needed - just pass the target URL when making the request.
 
-### 9. Add More Services (Optional)
+### 10. Add More Services (Optional)
 
 You can add as many Lambda and AppRunner services as needed. They all follow the same pattern:
 
 **Add more Lambda services:**
 
 ```bash
-# Create additional Lambda services (automatically appends to api-gateway.tf)
+# Step 1: Create additional Lambda services (automatically appends to api-gateway.tf)
 ./scripts/setup-terraform-lambda.sh worker     # Creates /worker, /worker/*
 ./scripts/setup-terraform-lambda.sh scheduler  # Creates /scheduler, /scheduler/*
 
-# Build & push images
+# Step 2: Build & push images
 ./scripts/docker-push.sh dev worker Dockerfile.lambda
 ./scripts/docker-push.sh dev scheduler Dockerfile.lambda
 
-# Deploy all services
+# Step 3: Deploy all services
 make app-init-dev app-apply-dev
 ```
 
@@ -236,15 +242,15 @@ make test-lambda-worker
 **Add more AppRunner services:**
 
 ```bash
-# Create and deploy additional AppRunner services
+# Step 1: Create additional AppRunner services
 ./scripts/setup-terraform-apprunner.sh web      # Web frontend service
 ./scripts/setup-terraform-apprunner.sh admin    # Admin dashboard
 
-# Build & push images
+# Step 2: Build & push images
 ./scripts/docker-push.sh dev web Dockerfile.apprunner
 ./scripts/docker-push.sh dev admin Dockerfile.apprunner
 
-# Deploy all AppRunner services
+# Step 3: Deploy all AppRunner services
 make app-init-dev app-apply-dev
 ```
 
@@ -264,7 +270,7 @@ cd terraform && terraform output apprunner_admin_url
 >
 > **🔄 Service communication:** Services can communicate with each other via API Gateway paths, direct AppRunner URLs, or Lambda Function URLs. Use Terraform outputs to get service URLs and pass them as parameters when calling the `/inter-service` endpoint.
 
-### 10. GitHub Actions (Optional)
+### 11. GitHub Actions (Optional)
 
 Configure repository secrets (get ARNs from `make bootstrap-output`):
 - `AWS_ACCOUNT_ID`, `AWS_REGION`

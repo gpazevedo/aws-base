@@ -391,7 +391,63 @@ module "api_gateway_lambda_${SERVICE_NAME}" {
 }
 EOF
 
-  echo "✅ Added integration for '${SERVICE_NAME}'"
+  echo "✅ Added integration module for '${SERVICE_NAME}'"
+
+  # =============================================================================
+  # Update api_gateway_shared module to include integration_ids
+  # =============================================================================
+  echo "📝 Updating api_gateway_shared module with integration dependencies..."
+
+  # Check if integration_ids already exists in the shared module
+  if grep -q "integration_ids.*=" "$API_GATEWAY_FILE"; then
+    # integration_ids line already exists, we need to add this service to the list
+    # Find the line with integration_ids and add the new integration
+
+    # Create a temporary file with the updated integration_ids
+    awk -v service="${SERVICE_NAME}" '
+      /integration_ids.*=.*\[/ {
+        # Found the start of integration_ids list
+        in_integration_list = 1
+        print $0
+        next
+      }
+      in_integration_list && /\]/ {
+        # End of integration_ids list, add new service before closing bracket
+        print "    module.api_gateway_lambda_" service "[0].integration_id,"
+        in_integration_list = 0
+        print $0
+        next
+      }
+      { print $0 }
+    ' "$API_GATEWAY_FILE" > "${API_GATEWAY_FILE}.tmp"
+
+    mv "${API_GATEWAY_FILE}.tmp" "$API_GATEWAY_FILE"
+    echo "✅ Added '${SERVICE_NAME}' to existing integration_ids list"
+  else
+    # integration_ids doesn't exist, add it to the shared module
+    # Find the line after "count = local.api_gateway_enabled ? 1 : 0" in api_gateway_shared
+
+    awk -v service="${SERVICE_NAME}" '
+      /^module "api_gateway_shared"/ {
+        in_shared_module = 1
+      }
+      in_shared_module && /count.*=.*local.api_gateway_enabled/ {
+        print $0
+        print ""
+        print "  # Integration IDs for deployment dependencies"
+        print "  # This ensures the deployment waits for all integrations to be created"
+        print "  integration_ids = local.api_gateway_enabled ? ["
+        print "    module.api_gateway_lambda_" service "[0].integration_id,"
+        print "  ] : []"
+        in_shared_module = 0
+        next
+      }
+      { print $0 }
+    ' "$API_GATEWAY_FILE" > "${API_GATEWAY_FILE}.tmp"
+
+    mv "${API_GATEWAY_FILE}.tmp" "$API_GATEWAY_FILE"
+    echo "✅ Added integration_ids to api_gateway_shared module"
+  fi
 fi
 
 echo ""

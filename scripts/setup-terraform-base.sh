@@ -87,6 +87,8 @@ provider "aws" {
   default_tags {
     tags = {
       Project     = var.project_name
+      CostCenter    = var.cost_center
+      Team          = var.team
       Environment = var.environment
       ManagedBy   = "Terraform"
       Repository  = var.github_repo
@@ -270,8 +272,24 @@ variable "api_usage_plan_quota_period" {
   }
 }
 
+# =============================================================================
+# Tags
+# =============================================================================
+
+variable "cost_center" {
+  description = "Cost center for resource tagging and cost allocation"
+  type        = string
+  default     = "engineering"
+}
+
+variable "team" {
+  description = "Team responsible for the resources"
+  type        = string
+  default     = "platform"
+}
+
 variable "additional_tags" {
-  description = "Additional tags to apply to resources"
+  description = "Additional tags to apply to all resources"
   type        = map(string)
   default     = {}
 }
@@ -461,6 +479,10 @@ module "api_gateway_shared" {
   project_name = var.project_name
   environment  = var.environment
   api_name     = "${var.project_name}-${var.environment}-api"
+
+  # NOTE: integration_ids will be automatically added by setup-terraform-lambda.sh
+  # and setup-terraform-apprunner.sh when you add services. This ensures the
+  # API Gateway deployment waits for all integrations to be created first.
 
   # Rate Limiting
   throttle_burst_limit = var.api_throttle_burst_limit

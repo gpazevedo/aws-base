@@ -97,6 +97,7 @@ git commit -m "Add new feature"
    - Type consistency
    - Missing types
    - Invalid type usage
+   - **Note:** For backend services (multi-venv projects), a custom hook runs `make typecheck` instead
 
 **All Files:**
 4. **General Checks**:
@@ -228,7 +229,7 @@ typeCheckingMode = "standard"  # Options: off, basic, standard, strict
 - ✅ Optional access without checks
 - ✅ Incompatible types in assignments
 
-### Example
+### Basic Example
 
 ```python
 # ❌ Fails type checking
@@ -239,6 +240,72 @@ def greet(name):  # Missing type annotation
 def greet(name: str) -> str:
     return f"Hello, {name}"
 ```
+
+### Multi-Service Type Checking
+
+**For projects with multiple backend services** (each with isolated venvs), this project uses a **custom pre-commit hook** that intelligently type-checks only the services you've modified:
+
+#### How It Works
+
+1. **Detects changes**: Analyzes which backend services have modified Python files
+2. **Runs per-service**: Executes `make typecheck SERVICE=<name>` for each affected service
+3. **Uses isolated venvs**: Each service's type checking runs in its own virtual environment
+4. **Scales automatically**: Works with any number of services without configuration changes
+
+#### Example
+
+```bash
+# Modify api service
+vim backend/api/main.py
+
+# On commit, pre-commit automatically runs:
+# → Type checking backend service: api
+# → make typecheck SERVICE=api
+# → ✅ Type check passed for service: api
+
+# Modify multiple services
+vim backend/api/main.py backend/runner/main.py
+
+# On commit, pre-commit runs both:
+# → Type checking backend service: api
+# → ✅ Type check passed for service: api
+# → Type checking backend service: runner
+# → ✅ Type check passed for service: runner
+```
+
+#### Manual Type Check
+
+```bash
+# Check specific service
+make typecheck SERVICE=api
+make typecheck SERVICE=runner
+
+# Check all services (manual approach)
+make typecheck SERVICE=api && make typecheck SERVICE=runner
+```
+
+#### Implementation Details
+
+The custom hook is defined in [`.pre-commit-hooks/typecheck-backend.sh`](../.pre-commit-hooks/typecheck-backend.sh) and configured in [`.pre-commit-config.yaml`](../.pre-commit-config.yaml):
+
+```yaml
+# Custom hook: Type check backend services with isolated venvs
+- repo: local
+  hooks:
+    - id: typecheck-backend
+      name: Type check backend services
+      entry: .pre-commit-hooks/typecheck-backend.sh
+      language: script
+      types: [python]
+      files: ^backend/.*\.py$
+```
+
+**Why this approach?**
+
+- ✅ **Efficient**: Only type-checks services that changed
+- ✅ **Accurate**: Each service uses its own venv with correct dependencies
+- ✅ **Scalable**: Automatically handles new services
+- ✅ **Fast**: Parallel service checking when multiple services change
 
 ---
 

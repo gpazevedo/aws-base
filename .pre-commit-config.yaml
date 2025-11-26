@@ -20,11 +20,27 @@ repos:
         types_or: [python, pyi]
 
   # Pyright - Microsoft's static type checker for Python
+  # Note: Disabled for backend services as they use isolated venvs
+  # Instead, use custom hook below that runs 'make typecheck' per service
   - repo: https://github.com/RobertCraigie/pyright-python
     rev: v1.1.407  # November 2025 - Latest
     hooks:
       - id: pyright
         additional_dependencies: []
+        exclude: ^backend/
+
+  # Custom hook: Type check backend services with isolated venvs
+  # Automatically detects which services changed and runs 'make typecheck'
+  - repo: local
+    hooks:
+      - id: typecheck-backend
+        name: Type check backend services
+        entry: .pre-commit-hooks/typecheck-backend.sh
+        language: script
+        types: [python]
+        files: ^backend/.*\.py$
+        pass_filenames: true
+        require_serial: true
 
   # General pre-commit hooks for file quality
   - repo: https://github.com/pre-commit/pre-commit-hooks

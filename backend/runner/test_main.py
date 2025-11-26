@@ -1,10 +1,9 @@
 """Tests for the AppRunner service."""
 
+from unittest.mock import AsyncMock, patch
+
 import pytest
 from fastapi.testclient import TestClient
-from unittest.mock import AsyncMock, patch
-import httpx
-
 from main import app, settings
 
 

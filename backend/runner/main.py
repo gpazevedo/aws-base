@@ -1,21 +1,23 @@
 """Runner FastAPI service that calls the API service health endpoint."""
 
 import logging
+import os
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
 import structlog
 from aws_xray_sdk.core import patch_all, xray_recorder
-from aws_xray_sdk.ext.fastapi.middleware import XRayMiddleware
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
+from starlette.middleware.base import BaseHTTPMiddleware
+from xraysink.asgi.middleware import xray_middleware
+from xraysink.context import AsyncContext
 
 # =============================================================================
 # Configuration
@@ -95,12 +97,19 @@ logger = structlog.get_logger()
 
 def configure_xray() -> None:
     """Configure AWS X-Ray tracing."""
+    # Disable X-Ray during tests
+    if os.getenv("PYTEST_CURRENT_TEST"):
+        xray_recorder.configure(context_missing="LOG_ERROR")
+        logger.info("xray_disabled", reason="test_environment")
+        return
+
     if settings.enable_xray:
         # Patch libraries for automatic tracing
         patch_all()
 
-        # Configure X-Ray recorder
+        # Configure X-Ray recorder with AsyncContext for FastAPI compatibility
         xray_recorder.configure(
+            context=AsyncContext(),
             service=f"{settings.service_name}-{settings.environment}",
             sampling=True,
             context_missing="LOG_ERROR",
@@ -164,9 +173,9 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Add X-Ray middleware
-if settings.enable_xray:
-    app.add_middleware(XRayMiddleware)
+# Add X-Ray middleware (skip during tests)
+if settings.enable_xray and not os.getenv("PYTEST_CURRENT_TEST"):
+    app.add_middleware(BaseHTTPMiddleware, dispatch=xray_middleware)
 
 
 # =============================================================================
@@ -280,7 +289,7 @@ async def health_check() -> HealthResponse:
     uptime = time.time() - START_TIME
     return HealthResponse(
         status="healthy",
-        timestamp=datetime.now(timezone.utc).isoformat(),
+        timestamp=datetime.now(UTC).isoformat(),
         uptime_seconds=round(uptime, 2),
         version=settings.service_version,
         service_name=settings.service_name,
@@ -344,7 +353,7 @@ async def readiness_probe() -> StatusResponse:
         raise HTTPException(
             status_code=503,
             detail=f"Cannot reach API service: {str(e)}",
-        )
+        ) from e
 
 
 # =============================================================================
@@ -398,7 +407,7 @@ async def get_api_health() -> ApiHealthResponse:
         raise HTTPException(
             status_code=503,
             detail=f"Failed to reach API service: {str(e)}",
-        )
+        ) from e
     except Exception as e:
         logger.exception(
             "api_service_health_unexpected_error",
@@ -408,7 +417,7 @@ async def get_api_health() -> ApiHealthResponse:
         raise HTTPException(
             status_code=500,
             detail=f"Unexpected error calling API service: {str(e)}",
-        )
+        ) from e
 
 
 # =============================================================================
@@ -431,7 +440,9 @@ async def root() -> GreetingResponse:
 
 
 @app.get("/greet", response_model=GreetingResponse, tags=["General"])
-async def greet(name: str = Query(default="World", description="Name to greet")) -> GreetingResponse:
+async def greet(
+    name: str = Query(default="World", description="Name to greet"),
+) -> GreetingResponse:
     """
     Greet a person by name.
 

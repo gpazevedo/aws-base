@@ -21,7 +21,7 @@ This guide provides step-by-step instructions for installing all required tools 
 ## Python
 
 **Minimum version required:** 3.11+
-**Recommended version:** 3.13 (default for this project)
+**Recommended version:** 3.14 (default for this project)
 
 ### Ubuntu/Debian
 

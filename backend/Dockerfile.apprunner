@@ -1,7 +1,7 @@
 # =============================================================================
-# Dockerfile for AWS App Runner (Python 3.13 + uv)
+# Dockerfile for AWS App Runner (Python 3.14 + uv)
 # =============================================================================
-# This Dockerfile builds an App Runner container image using Python 3.13 and uv
+# This Dockerfile builds an App Runner container image using Python 3.14 and uv
 # App Runner expects the application to listen on port 8080
 #
 # Multi-architecture support:
@@ -19,9 +19,9 @@ ARG SERVICE_FOLDER=runner
 # Multi-arch support - TARGETPLATFORM is automatically set by Docker BuildKit
 # When using --platform=linux/arm64, TARGETPLATFORM=linux/arm64
 # When using --platform=linux/amd64, TARGETPLATFORM=linux/amd64
-# The python:3.13-slim multi-arch manifest will pull the correct variant
+# The python:3.14-slim multi-arch manifest will pull the correct variant
 ARG TARGETPLATFORM
-FROM --platform=$TARGETPLATFORM python:3.13-slim
+FROM --platform=$TARGETPLATFORM python:3.14-slim
 
 # Re-declare ARG after FROM (Docker requirement)
 ARG SERVICE_FOLDER=runner

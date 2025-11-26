@@ -2,7 +2,7 @@
 
 > **Production-ready AWS infrastructure template for Python applications**
 
-Bootstrap AWS projects with Python 3.13, `uv` dependency management, GitHub Actions CI/CD via OIDC, and Terraform state management. Supports Lambda, App Runner, and EKS deployment options with multi-service architecture.
+Bootstrap AWS projects with Python 3.14, `uv` dependency management, GitHub Actions CI/CD via OIDC, and Terraform state management. Supports Lambda, App Runner, and EKS deployment options with multi-service architecture.
 
 **📖 New to this project?**
 
@@ -20,7 +20,7 @@ Bootstrap AWS projects with Python 3.13, `uv` dependency management, GitHub Acti
 - **EKS** - Kubernetes orchestration (microservices)
 
 ### Core Stack
-- Python 3.13 with `uv` package manager
+- Python 3.14 with `uv` package manager
 - GitHub OIDC (no AWS credentials in CI/CD)
 - Terraform with S3 state backend
 - Multi-environment support (dev, test, prod)

@@ -74,7 +74,7 @@ make docker-build ARCH=arm64
 - Ensure `UV_SYSTEM_PYTHON=1` is set in Dockerfile.
 - For multi-stage builds (EKS), ensure `site-packages` are copied:
   ```dockerfile
-  COPY --from=builder /usr/local/lib/python3.13/site-packages /usr/local/lib/python3.13/site-packages
+  COPY --from=builder /usr/local/lib/python3.14/site-packages /usr/local/lib/python3.14/site-packages
   ```
 - See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for detailed dependency debugging.
 

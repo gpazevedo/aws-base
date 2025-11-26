@@ -1,10 +1,21 @@
 """Tests for FastAPI application."""
 
+import os
+
+import pytest
+
+# Set environment variable before importing app to prevent X-Ray initialization
+os.environ["PYTEST_CURRENT_TEST"] = "true"
+
 from fastapi.testclient import TestClient
 from main import app
 
-# Create test client
-client = TestClient(app)
+
+@pytest.fixture(scope="module")
+def client():
+    """Create test client with lifespan context."""
+    with TestClient(app) as test_client:
+        yield test_client
 
 
 # =============================================================================
@@ -12,7 +23,7 @@ client = TestClient(app)
 # =============================================================================
 
 
-def test_health_check() -> None:
+def test_health_check(client) -> None:
     """Test health check endpoint."""
     response = client.get("/health")
     assert response.status_code == 200
@@ -23,7 +34,7 @@ def test_health_check() -> None:
     assert data["version"] == "0.1.0"
 
 
-def test_liveness_probe() -> None:
+def test_liveness_probe(client) -> None:
     """Test liveness probe endpoint."""
     response = client.get("/liveness")
     assert response.status_code == 200
@@ -31,7 +42,7 @@ def test_liveness_probe() -> None:
     assert data["status"] == "alive"
 
 
-def test_readiness_probe() -> None:
+def test_readiness_probe(client) -> None:
     """Test readiness probe endpoint."""
     response = client.get("/readiness")
     assert response.status_code == 200
@@ -44,7 +55,7 @@ def test_readiness_probe() -> None:
 # =============================================================================
 
 
-def test_root_endpoint() -> None:
+def test_root_endpoint(client) -> None:
     """Test root endpoint."""
     response = client.get("/")
     assert response.status_code == 200
@@ -53,7 +64,7 @@ def test_root_endpoint() -> None:
     assert data["version"] == "0.1.0"
 
 
-def test_greet_get_default() -> None:
+def test_greet_get_default(client) -> None:
     """Test greet endpoint with default name."""
     response = client.get("/greet")
     assert response.status_code == 200
@@ -62,7 +73,7 @@ def test_greet_get_default() -> None:
     assert data["version"] == "0.1.0"
 
 
-def test_greet_get_with_name() -> None:
+def test_greet_get_with_name(client) -> None:
     """Test greet endpoint with custom name."""
     response = client.get("/greet?name=Alice")
     assert response.status_code == 200
@@ -71,7 +82,7 @@ def test_greet_get_with_name() -> None:
     assert data["version"] == "0.1.0"
 
 
-def test_greet_post() -> None:
+def test_greet_post(client) -> None:
     """Test greet POST endpoint."""
     response = client.post("/greet", json={"name": "Bob"})
     assert response.status_code == 200
@@ -80,13 +91,13 @@ def test_greet_post() -> None:
     assert data["version"] == "0.1.0"
 
 
-def test_greet_post_validation_error() -> None:
+def test_greet_post_validation_error(client) -> None:
     """Test greet POST endpoint with invalid data."""
     response = client.post("/greet", json={})
     assert response.status_code == 422  # Validation error
 
 
-def test_error_endpoint() -> None:
+def test_error_endpoint(client) -> None:
     """Test error endpoint returns 500."""
     response = client.get("/error")
     assert response.status_code == 500
@@ -99,7 +110,7 @@ def test_error_endpoint() -> None:
 # =============================================================================
 
 
-def test_inter_service_endpoint_missing_url() -> None:
+def test_inter_service_endpoint_missing_url(client) -> None:
     """
     Test the inter-service endpoint returns validation error when URL is missing.
     """
@@ -108,7 +119,7 @@ def test_inter_service_endpoint_missing_url() -> None:
     assert response.status_code == 422
 
 
-def test_inter_service_endpoint_with_invalid_url() -> None:
+def test_inter_service_endpoint_with_invalid_url(client) -> None:
     """
     Test the inter-service endpoint with an invalid URL.
 
@@ -129,7 +140,7 @@ def test_inter_service_endpoint_with_invalid_url() -> None:
 # =============================================================================
 
 
-def test_openapi_schema() -> None:
+def test_openapi_schema(client) -> None:
     """Test OpenAPI schema is accessible."""
     response = client.get("/openapi.json")
     assert response.status_code == 200
@@ -139,14 +150,14 @@ def test_openapi_schema() -> None:
     assert data["info"]["title"] == "AWS Base Python API"
 
 
-def test_swagger_ui() -> None:
+def test_swagger_ui(client) -> None:
     """Test Swagger UI is accessible."""
     response = client.get("/docs")
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
 
 
-def test_redoc() -> None:
+def test_redoc(client) -> None:
     """Test ReDoc is accessible."""
     response = client.get("/redoc")
     assert response.status_code == 200
@@ -158,7 +169,7 @@ def test_redoc() -> None:
 # =============================================================================
 
 
-def test_404_not_found() -> None:
+def test_404_not_found(client) -> None:
     """Test custom 404 handler."""
     response = client.get("/nonexistent")
     assert response.status_code == 404

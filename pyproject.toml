@@ -10,7 +10,7 @@ name = "aws-base-dev"
 version = "0.1.0"
 description = "Development tools for AWS Bootstrap Infrastructure"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.14"
 
 # Development dependencies for the entire project
 # Note: Dependencies are in the main list since we always need them for dev
@@ -43,7 +43,7 @@ indent-style = "space"
 
 [tool.pyright]
 # Pyright configuration
-pythonVersion = "3.13"
+pythonVersion = "3.14"
 typeCheckingMode = "basic"
 reportMissingImports = true
 reportMissingTypeStubs = false

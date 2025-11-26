@@ -118,10 +118,6 @@ def configure_xray() -> None:
         )
 
 
-# Configure X-Ray on module import
-configure_xray()
-
-
 # =============================================================================
 # Application Lifespan
 # =============================================================================
@@ -135,7 +131,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     This modern FastAPI pattern replaces the deprecated @app.on_event decorators.
     Resources are initialized on startup and cleaned up on shutdown.
     """
-    # Startup: Initialize shared HTTP client
+    # Startup: Configure X-Ray and initialize shared HTTP client
+    configure_xray()
+
     logger.info(
         "application_startup",
         service=settings.service_name,

@@ -215,7 +215,7 @@ select = [
 
 ```toml
 [tool.pyright]
-pythonVersion = "3.13"
+pythonVersion = "3.14"
 typeCheckingMode = "standard"  # Options: off, basic, standard, strict
 ```
 

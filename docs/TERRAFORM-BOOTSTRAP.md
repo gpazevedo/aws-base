@@ -708,7 +708,7 @@ tags = {
 |----------|------|---------|-------------|
 | `lambda_use_container_image` | bool | `true` | Use container images (vs ZIP) |
 | `lambda_architecture` | string | `"arm64"` | CPU architecture (`arm64` or `x86_64`) |
-| `lambda_runtime` | string | `"python3.13"` | Runtime version (if using ZIP) |
+| `lambda_runtime` | string | `"python3.14"` | Runtime version (if using ZIP) |
 
 ### App Runner Configuration
 

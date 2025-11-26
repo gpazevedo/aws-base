@@ -227,13 +227,15 @@ echo ""
 
 cd backend
 
-docker build \
+# Use buildx for reliable cross-platform builds
+docker buildx build \
   --platform=linux/${TARGET_ARCH} \
   --build-arg SERVICE_FOLDER="${SERVICE}" \
   -f "${DOCKERFILE}" \
   -t "${ECR_URL}:${PRIMARY_TAG}" \
   -t "${ECR_URL}:${SERVICE_LATEST_TAG}" \
   -t "${ECR_URL}:${ENV_LATEST_TAG}" \
+  --load \
   .
 
 if [ $? -ne 0 ]; then

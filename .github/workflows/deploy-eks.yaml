@@ -23,6 +23,10 @@ on:
       - 'backend/**'
       - 'k8s/**'
 
+concurrency:
+  group: deploy-eks-${{ github.ref }}-${{ inputs.environment || 'dev' }}
+  cancel-in-progress: false
+
 env:
   PROJECT_NAME: ${{ vars.PROJECT_NAME }}
   AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}

@@ -22,6 +22,10 @@ on:
     paths:
       - 'backend/**'
 
+concurrency:
+  group: deploy-lambda-${{ github.ref }}-${{ inputs.environment || 'dev' }}
+  cancel-in-progress: false
+
 env:
   PROJECT_NAME: ${{ vars.PROJECT_NAME }}
   AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}

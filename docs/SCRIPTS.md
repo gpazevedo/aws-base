@@ -759,7 +759,201 @@ See [GITHUB-ACTIONS.md](GITHUB-ACTIONS.md#terraform-deployment-workflow) for wor
 
 ---
 
-### 8. `test-api.sh`
+### 8. `rollback-service.sh`
+
+**Purpose**: Automated rollback of Lambda or AppRunner services to a previous Docker image version.
+
+**Location**: `scripts/rollback-service.sh`
+
+**Usage**:
+```bash
+# Rollback API service in dev environment
+./scripts/rollback-service.sh dev api api-dev-2025-11-25-18-45-ghi9012
+
+# Rollback worker service in production
+./scripts/rollback-service.sh prod worker worker-prod-2025-11-24-12-30-abc1234
+
+# Rollback runner AppRunner service
+./scripts/rollback-service.sh dev runner runner-dev-2025-11-23-10-15-xyz7890
+```
+
+**Arguments**:
+1. **Environment** (required): `dev`, `test`, or `prod`
+2. **Service** (required): Service name (api, worker, runner, etc.)
+3. **Target Tag** (required): Full ECR image tag to rollback to
+
+**What it does**:
+1. Validates environment and service parameters
+2. Reads project configuration from bootstrap or environment variables
+3. Verifies target image exists in ECR repository
+4. Auto-detects service type (Lambda or AppRunner)
+5. Displays current service configuration
+6. Prompts for confirmation before rollback
+7. Performs rollback:
+   - **Lambda**: Updates function code with new image URI
+   - **AppRunner**: Triggers deployment or provides Terraform instructions
+8. Verifies rollback completed successfully
+9. Runs health checks using `test-health.sh` (if available)
+10. Provides detailed summary and monitoring commands
+
+**Features**:
+- ✅ **Auto-detection**: Automatically identifies Lambda vs AppRunner services
+- ✅ **Image validation**: Verifies target image exists before rollback
+- ✅ **Safety prompts**: Requires confirmation before proceeding
+- ✅ **Health checks**: Automatically runs post-rollback validation
+- ✅ **Comprehensive output**: Color-coded status and detailed progress
+- ✅ **CI/CD friendly**: Exit codes and structured output
+- ✅ **AppRunner support**: Handles AppRunner's Terraform-based rollback
+
+**Finding Available Image Tags**:
+
+```bash
+# List recent images for a service
+export PROJECT_NAME="fingus"
+export AWS_REGION="us-east-1"
+export ENVIRONMENT="dev"
+export SERVICE="api"
+
+aws ecr describe-images \
+  --repository-name ${PROJECT_NAME} \
+  --region ${AWS_REGION} \
+  --query "reverse(sort_by(imageDetails[?contains(imageTags[0], '${SERVICE}-${ENVIRONMENT}-')], &imagePushedAt))[0:10].{Tag:imageTags[0],Pushed:imagePushedAt}" \
+  --output table
+```
+
+**Example Output**:
+
+```text
+╔════════════════════════════════════════════════════════════════╗
+║           Service Rollback Script                              ║
+╚════════════════════════════════════════════════════════════════╝
+
+📋 Rollback Configuration:
+   Environment: dev
+   Service:     api
+   Target Tag:  api-dev-2025-11-25-18-45-ghi9012
+
+📖 Reading configuration...
+✅ Configuration loaded
+   Project:     fingus
+   AWS Account: 234876310489
+   AWS Region:  us-east-1
+
+🔍 Validating target image exists...
+✅ Image found in ECR
+   Image URI: 234876310489.dkr.ecr.us-east-1.amazonaws.com/fingus:api-dev-2025-11-25-18-45-ghi9012
+
+🔍 Detecting service type...
+✅ Detected Lambda function: fingus-dev-api
+
+📊 Current service configuration:
+   Current Image: 234876310489.dkr.ecr.us-east-1.amazonaws.com/fingus:api-dev-latest
+
+⚠️  ROLLBACK CONFIRMATION
+
+   Service:       api (lambda)
+   Environment:   dev
+   Current Image: ...fingus:api-dev-latest
+   Target Image:  ...fingus:api-dev-2025-11-25-18-45-ghi9012
+
+Are you sure you want to proceed with the rollback? (yes/no): yes
+
+🔄 Starting rollback...
+   Updating Lambda function code...
+✅ Lambda function updated successfully
+
+🔍 Verifying rollback...
+   Current Image: 234876310489.dkr.ecr.us-east-1.amazonaws.com/fingus:api-dev-2025-11-25-18-45-ghi9012
+✅ Rollback verified - image updated successfully
+
+🏥 Running health checks...
+   Executing: ./scripts/test-health.sh dev fingus api
+
+━━━ Testing api Lambda service (via API Gateway) ━━━
+✅ api: Health check (200) - Response time: 0.234s
+✅ api: Liveness probe (200)
+✅ api: Readiness probe (200)
+
+✅ Health checks passed
+
+╔════════════════════════════════════════════════════════════════╗
+║              Rollback Completed Successfully                   ║
+╚════════════════════════════════════════════════════════════════╝
+
+📋 Rollback Summary:
+   Service:     api
+   Type:        lambda
+   Environment: dev
+   Target Tag:  api-dev-2025-11-25-18-45-ghi9012
+
+📊 Next Steps:
+   1. Monitor service logs for errors
+   2. Verify application functionality
+   3. Document rollback reason
+   4. Plan fix for the issue
+
+📝 Monitor logs with:
+   aws logs tail /aws/lambda/fingus-dev-api --follow
+
+✅ Rollback process completed
+```
+
+**AppRunner Rollback**:
+
+For AppRunner services, the script provides two options:
+
+1. **Trigger immediate deployment** (uses current ECR configuration):
+   ```bash
+   ./scripts/rollback-service.sh dev runner runner-dev-2025-11-25-18-45-ghi9012
+   # Choose 'yes' when prompted to trigger deployment
+   ```
+
+2. **Update via Terraform** (recommended for image tag changes):
+   ```bash
+   # Script provides exact Terraform command:
+   cd terraform
+   terraform apply \
+     -var="runner_image_tag=runner-dev-2025-11-25-18-45-ghi9012" \
+     -var-file=environments/dev.tfvars \
+     -target=aws_apprunner_service.runner
+   ```
+
+**When to use**:
+- After detecting bugs in latest deployment
+- When new deployment causes errors or performance issues
+- During incident response
+- For testing rollback procedures
+- In emergency situations requiring quick recovery
+
+**Prerequisites**:
+- AWS CLI configured with appropriate permissions
+- Bootstrap Terraform applied or environment variables set:
+  - `PROJECT_NAME`
+  - `AWS_ACCOUNT_ID`
+  - `AWS_REGION`
+- Target service deployed (Lambda function or AppRunner service)
+- Target ECR image exists
+
+**Exit Codes**:
+- `0` - Rollback completed successfully
+- `1` - Rollback failed (validation, update, or verification errors)
+
+**Related Documentation**:
+- [GITHUB-ACTIONS.md - Rollback Guide](GITHUB-ACTIONS.md#rollback-guide) - Comprehensive rollback procedures
+- [MULTI-SERVICE-TESTING-GUIDE.md](MULTI-SERVICE-TESTING-GUIDE.md) - Post-rollback testing
+- [DOCKER.md](DOCKER.md) - Docker image tagging strategy
+
+**Best Practices**:
+1. **Always verify** available image tags before rollback
+2. **Test in dev** before rolling back production
+3. **Document reason** for rollback in commit messages or tickets
+4. **Monitor after rollback** using CloudWatch logs and metrics
+5. **Plan forward fix** rather than staying on old version permanently
+6. **Use health checks** to verify rollback success
+
+---
+
+### 9. `test-api.sh`
 
 **Purpose**: Comprehensive automated testing of all API endpoints after deployment.
 

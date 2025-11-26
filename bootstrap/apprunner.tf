@@ -91,6 +91,14 @@ resource "aws_iam_role_policy" "apprunner_logs" {
   })
 }
 
+# Attach AWS X-Ray write policy for AppRunner tracing
+resource "aws_iam_role_policy_attachment" "apprunner_xray" {
+  count = var.enable_apprunner ? 1 : 0
+
+  role       = aws_iam_role.apprunner_instance[0].name
+  policy_arn = "arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess"
+}
+
 # =============================================================================
 # App Runner Deployment Policy for GitHub Actions
 # =============================================================================

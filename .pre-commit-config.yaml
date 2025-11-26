@@ -45,7 +45,7 @@ repos:
       - id: check-docstring-first
       - id: check-ast  # Check Python syntax
 
-  # Terraform formatting (for .tf files)
+  # Terraform formatting and security (for .tf files)
   - repo: https://github.com/antonbabenko/pre-commit-terraform
     rev: v1.96.1  # November 2025 - Latest
     hooks:
@@ -64,6 +64,15 @@ repos:
           - --args=--config=__GIT_WORKING_DIR__/.tflint.hcl
           - --args=--minimum-failure-severity=error
         exclude: ^bootstrap/
+      - id: terraform_tfsec
+        files: \.tf$
+        pass_filenames: false
+      - id: terraform_checkov
+        files: \.tf$
+        pass_filenames: false
+        args:
+          - --args=--quiet
+          - --args=--soft-fail
 
 # Configuration
 default_language_version:

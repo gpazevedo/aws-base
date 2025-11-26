@@ -19,12 +19,18 @@ dependencies = [
     # ASGI server
     "uvicorn[standard]>=0.32.0,<0.33.0",
 
+    # AWS X-Ray tracing
+    "aws-xray-sdk>=2.14.0,<3.0.0",
+
     # HTTP client
     "httpx>=0.27.0,<0.28.0",
 
     # Data validation
     "pydantic>=2.9.0,<3.0.0",
     "pydantic-settings>=2.6.0,<3.0.0",
+
+    # Structured logging
+    "structlog>=24.4.0,<25.0.0",
 
     # Utilities
     "python-dotenv>=1.0.0,<2.0.0",

@@ -1,11 +1,17 @@
 """Runner FastAPI service that calls the API service health endpoint."""
 
+import logging
 import time
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any
 
 import httpx
-from fastapi import FastAPI, HTTPException, Query
+import structlog
+from aws_xray_sdk.core import patch_all, xray_recorder
+from aws_xray_sdk.ext.fastapi.middleware import XRayMiddleware
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -27,13 +33,121 @@ class Settings(BaseSettings):
     # Service configuration
     service_name: str = "runner"
     service_version: str = "0.1.0"
+    environment: str = "dev"
 
     # HTTP client settings
     http_timeout: float = 30.0
     http_max_retries: int = 3
 
+    # Observability settings
+    enable_xray: bool = True
+    log_level: str = "INFO"
+
 
 settings = Settings()
+
+# Track application startup time for uptime calculation
+START_TIME = time.time()
+
+
+# =============================================================================
+# Logging Configuration
+# =============================================================================
+
+
+def configure_logging() -> None:
+    """Configure structured logging with structlog."""
+    structlog.configure(
+        processors=[
+            structlog.contextvars.merge_contextvars,
+            structlog.stdlib.filter_by_level,
+            structlog.processors.TimeStamper(fmt="iso"),
+            structlog.stdlib.add_logger_name,
+            structlog.stdlib.add_log_level,
+            structlog.stdlib.PositionalArgumentsFormatter(),
+            structlog.processors.StackInfoRenderer(),
+            structlog.processors.format_exc_info,
+            structlog.processors.UnicodeDecoder(),
+            structlog.processors.JSONRenderer(),
+        ],
+        wrapper_class=structlog.stdlib.BoundLogger,
+        context_class=dict,
+        logger_factory=structlog.stdlib.LoggerFactory(),
+        cache_logger_on_first_use=True,
+    )
+
+    # Set log level from settings
+    logging.basicConfig(
+        format="%(message)s",
+        level=getattr(logging, settings.log_level.upper()),
+    )
+
+
+# Configure logging on module import
+configure_logging()
+logger = structlog.get_logger()
+
+
+# =============================================================================
+# X-Ray Configuration
+# =============================================================================
+
+
+def configure_xray() -> None:
+    """Configure AWS X-Ray tracing."""
+    if settings.enable_xray:
+        # Patch libraries for automatic tracing
+        patch_all()
+
+        # Configure X-Ray recorder
+        xray_recorder.configure(
+            service=f"{settings.service_name}-{settings.environment}",
+            sampling=True,
+            context_missing="LOG_ERROR",
+        )
+
+        logger.info(
+            "xray_configured",
+            service=f"{settings.service_name}-{settings.environment}",
+        )
+
+
+# Configure X-Ray on module import
+configure_xray()
+
+
+# =============================================================================
+# Application Lifespan
+# =============================================================================
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """
+    Manage application lifespan with proper resource cleanup.
+
+    This modern FastAPI pattern replaces the deprecated @app.on_event decorators.
+    Resources are initialized on startup and cleaned up on shutdown.
+    """
+    # Startup: Initialize shared HTTP client
+    logger.info(
+        "application_startup",
+        service=settings.service_name,
+        version=settings.service_version,
+        environment=settings.environment,
+        api_service_url=settings.api_service_url,
+    )
+
+    app.state.http_client = httpx.AsyncClient(
+        timeout=httpx.Timeout(settings.http_timeout),
+        limits=httpx.Limits(max_keepalive_connections=5, max_connections=10),
+    )
+
+    yield  # Application runs here
+
+    # Shutdown: Clean up resources
+    logger.info("application_shutdown", service=settings.service_name)
+    await app.state.http_client.aclose()
 
 
 # =============================================================================
@@ -47,10 +161,51 @@ app = FastAPI(
     docs_url="/docs",  # Swagger UI
     redoc_url="/redoc",  # ReDoc
     openapi_url="/openapi.json",  # OpenAPI schema
+    lifespan=lifespan,
 )
 
-# Track application startup time for uptime calculation
-START_TIME = time.time()
+# Add X-Ray middleware
+if settings.enable_xray:
+    app.add_middleware(XRayMiddleware)
+
+
+# =============================================================================
+# Request Logging Middleware
+# =============================================================================
+
+
+@app.middleware("http")
+async def logging_middleware(request: Request, call_next):
+    """Log all HTTP requests with structured logging."""
+    start_time = time.time()
+
+    # Add request context to logs
+    structlog.contextvars.clear_contextvars()
+    structlog.contextvars.bind_contextvars(
+        path=request.url.path,
+        method=request.method,
+        client_ip=request.client.host if request.client else None,
+    )
+
+    logger.info(
+        "request_started",
+        path=request.url.path,
+        method=request.method,
+    )
+
+    response = await call_next(request)
+
+    duration = time.time() - start_time
+
+    logger.info(
+        "request_completed",
+        path=request.url.path,
+        method=request.method,
+        status_code=response.status_code,
+        duration_seconds=round(duration, 3),
+    )
+
+    return response
 
 
 # =============================================================================
@@ -152,7 +307,7 @@ async def readiness_probe() -> StatusResponse:
     Kubernetes-style readiness probe.
 
     Indicates whether the application is ready to receive traffic.
-    Checks if we can reach the API service.
+    Checks if we can reach the API service using the shared HTTP client.
 
     Returns:
         StatusResponse: Simple status indicating the app is ready
@@ -162,16 +317,30 @@ async def readiness_probe() -> StatusResponse:
     """
     # Check if we can reach the API service
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            response = await client.get(f"{settings.api_service_url}/health")
-            if response.status_code == 200:
-                return StatusResponse(status="ready")
-            else:
-                raise HTTPException(
-                    status_code=503,
-                    detail=f"API service returned status {response.status_code}",
-                )
+        # Use shared HTTP client with short timeout for readiness check
+        response = await app.state.http_client.get(
+            f"{settings.api_service_url}/health",
+            timeout=5.0,
+        )
+        if response.status_code == 200:
+            logger.debug("readiness_check_passed", api_service_url=settings.api_service_url)
+            return StatusResponse(status="ready")
+        else:
+            logger.warning(
+                "readiness_check_failed",
+                api_service_url=settings.api_service_url,
+                status_code=response.status_code,
+            )
+            raise HTTPException(
+                status_code=503,
+                detail=f"API service returned status {response.status_code}",
+            )
     except httpx.RequestError as e:
+        logger.error(
+            "readiness_check_error",
+            api_service_url=settings.api_service_url,
+            error=str(e),
+        )
         raise HTTPException(
             status_code=503,
             detail=f"Cannot reach API service: {str(e)}",
@@ -200,23 +369,42 @@ async def get_api_health() -> ApiHealthResponse:
     """
     start_time = time.time()
 
-    try:
-        async with httpx.AsyncClient(timeout=settings.http_timeout) as client:
-            response = await client.get(f"{settings.api_service_url}/health")
-            response_time = (time.time() - start_time) * 1000  # Convert to ms
+    logger.info("calling_api_service_health", api_service_url=settings.api_service_url)
 
-            # Return the response regardless of status code
-            return ApiHealthResponse(
-                api_response=response.json(),
-                status_code=response.status_code,
-                response_time_ms=round(response_time, 2),
-            )
+    try:
+        # Use shared HTTP client from app.state (initialized in lifespan)
+        response = await app.state.http_client.get(f"{settings.api_service_url}/health")
+        response_time = (time.time() - start_time) * 1000  # Convert to ms
+
+        logger.info(
+            "api_service_health_response",
+            api_service_url=settings.api_service_url,
+            status_code=response.status_code,
+            response_time_ms=round(response_time, 2),
+        )
+
+        # Return the response regardless of status code
+        return ApiHealthResponse(
+            api_response=response.json(),
+            status_code=response.status_code,
+            response_time_ms=round(response_time, 2),
+        )
     except httpx.RequestError as e:
+        logger.error(
+            "api_service_health_request_error",
+            api_service_url=settings.api_service_url,
+            error=str(e),
+        )
         raise HTTPException(
             status_code=503,
             detail=f"Failed to reach API service: {str(e)}",
         )
     except Exception as e:
+        logger.exception(
+            "api_service_health_unexpected_error",
+            api_service_url=settings.api_service_url,
+            error=str(e),
+        )
         raise HTTPException(
             status_code=500,
             detail=f"Unexpected error calling API service: {str(e)}",

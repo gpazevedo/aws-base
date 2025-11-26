@@ -1,8 +1,6 @@
 """Tests for FastAPI application."""
 
-import pytest
 from fastapi.testclient import TestClient
-
 from main import app
 
 # Create test client
@@ -116,7 +114,9 @@ def test_inter_service_endpoint_with_invalid_url() -> None:
 
     This should return 503 because the service cannot be reached.
     """
-    response = client.get("/inter-service?service_url=http://invalid-url-that-does-not-exist.local/health")
+    response = client.get(
+        "/inter-service?service_url=http://invalid-url-that-does-not-exist.local/health"
+    )
     # The endpoint should be accessible but return 503 (service unavailable)
     assert response.status_code == 503
     data = response.json()

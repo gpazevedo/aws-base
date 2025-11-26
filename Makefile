@@ -373,7 +373,7 @@ format-python:
 
 typecheck:
 	@echo "🔎 Type checking with Pyright (service: $(SERVICE))..."
-	uv run pyright backend/$(SERVICE)
+	cd backend/$(SERVICE) && ../../.venv/bin/pyright .
 
 test:
 	@echo "🧪 Running tests (service: $(SERVICE))..."

@@ -1,7 +1,7 @@
 # =============================================================================
-# Dockerfile for AWS Lambda (Python 3.13 + uv)
+# Dockerfile for AWS Lambda (Python 3.14 + uv)
 # =============================================================================
-# This Dockerfile builds a Lambda container image using Python 3.13 and uv
+# This Dockerfile builds a Lambda container image using Python 3.14 and uv
 # for dependency management
 #
 # Multi-architecture support:
@@ -17,7 +17,7 @@
 ARG SERVICE_FOLDER=api
 
 # Use the Lambda Python base image (supports multi-arch)
-FROM public.ecr.aws/lambda/python:3.13
+FROM public.ecr.aws/lambda/python:3.14
 
 # Re-declare ARG after FROM (Docker requirement)
 ARG SERVICE_FOLDER=api

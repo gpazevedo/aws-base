@@ -1,7 +1,7 @@
 # Executive Summary: AWS Bootstrap Infrastructure Template
 
 **Project Type:** Production-Ready Infrastructure Template
-**Technology Stack:** AWS, Terraform, Python 3.13, Docker
+**Technology Stack:** AWS, Terraform, Python 3.14, Docker
 **Architecture:** Multi-Service with API Gateway Path-Based Routing
 **Status:** Production-Ready & Fully Operational
 
@@ -138,8 +138,8 @@ API Gateway (Single Entry Point)
 
 **Components:**
 - **API Gateway** - Shared REST API with modular integrations
-- **Lambda Functions** - Python 3.13 containers (arm64)
-- **App Runner Services** - Python 3.13 containers (amd64)
+- **Lambda Functions** - Python 3.14 containers (arm64)
+- **App Runner Services** - Python 3.14 containers (amd64)
 - **CloudWatch Logs** - Centralized logging and monitoring
 
 **Deployment:** `make app-init-dev app-apply-dev`
@@ -189,7 +189,7 @@ terraform/
 - **Docker** - Multi-architecture containers (arm64, amd64)
 
 **Application:**
-- **Python 3.13** - Latest stable Python with modern features
+- **Python 3.14** - Latest stable Python with modern features
 - **uv** - Fast, modern Python package manager
 - **FastAPI** - Modern async web framework
 - **Mangum** - ASGI adapter for AWS Lambda

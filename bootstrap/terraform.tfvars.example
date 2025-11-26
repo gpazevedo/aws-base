@@ -47,7 +47,7 @@ apprunner_memory = 2048   # Memory in MB: 512 to 12288
 # Python Configuration
 # =============================================================================
 
-python_version = "3.13"   # Python version for Lambda/containers (3.8 to 3.13)
+python_version = "3.14"   # Python version for Lambda/containers (3.8 to 3.14)
 use_uv_builder = true     # Use uv for dependency management (recommended)
 
 # =============================================================================
@@ -119,7 +119,7 @@ additional_tags = {
 # enable_lambda = true
 # enable_apprunner = false
 # lambda_use_container_image = true
-# python_version = "3.13"
+# python_version = "3.14"
 
 # -----------------------------------------------------------------------------
 # Example 2: Containerized Web App (App Runner)
@@ -128,7 +128,7 @@ additional_tags = {
 # enable_lambda = false
 # enable_apprunner = true
 # ecr_repositories = ["web", "worker"]
-# python_version = "3.13"
+# python_version = "3.14"
 
 # -----------------------------------------------------------------------------
 # Example 4: Hybrid (Lambda + App Runner)
@@ -138,4 +138,4 @@ additional_tags = {
 # enable_apprunner = true
 # ecr_repositories = ["web-frontend"]  # For App Runner
 # lambda_use_container_image = true  # Lambda uses ECR too
-# python_version = "3.13"
+# python_version = "3.14"

@@ -192,7 +192,7 @@ fix(terraform): correct IAM policy for Lambda execution
 fix(docs): update broken links in README
 
 # Breaking change (major version bump)
-feat!: change default Lambda runtime to Python 3.13
+feat!: change default Lambda runtime to Python 3.14
 feat: migrate to Terraform 1.6
 
 BREAKING CHANGE: Terraform 1.6+ is now required
@@ -768,7 +768,7 @@ git push origin main
 # → Release Please creates v0.2.1
 
 # Make a breaking change release
-git commit -m "feat!: migrate to Python 3.13"
+git commit -m "feat!: migrate to Python 3.14"
 git push origin main
 # → Release Please creates v1.0.0
 ```

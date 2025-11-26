@@ -57,7 +57,7 @@ This guide provides solutions to common issues encountered with API Gateway, Doc
 - **Use `UV_SYSTEM_PYTHON=1`**: Ensure dependencies are installed to system Python, not a venv.
 - **Copy `site-packages`**: In multi-stage builds (EKS), explicitly copy the site-packages directory:
   ```dockerfile
-  COPY --from=builder /usr/local/lib/python3.13/site-packages /usr/local/lib/python3.13/site-packages
+  COPY --from=builder /usr/local/lib/python3.14/site-packages /usr/local/lib/python3.14/site-packages
   ```
 - **Rebuild without cache**:
   ```bash

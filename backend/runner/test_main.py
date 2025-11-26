@@ -1,16 +1,22 @@
 """Tests for the AppRunner service."""
 
+import os
 from unittest.mock import AsyncMock, patch
 
 import pytest
+
+# Set environment variable before importing app to prevent X-Ray initialization
+os.environ["PYTEST_CURRENT_TEST"] = "true"
+
 from fastapi.testclient import TestClient
 from main import app, settings
 
 
 @pytest.fixture
 def client():
-    """Create a test client."""
-    return TestClient(app)
+    """Create a test client with lifespan context."""
+    with TestClient(app) as test_client:
+        yield test_client
 
 
 def test_root_endpoint(client):

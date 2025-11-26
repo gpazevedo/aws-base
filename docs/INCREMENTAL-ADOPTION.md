@@ -90,7 +90,7 @@ enable_apprunner = false
 enable_eks       = false
 
 # Python Configuration
-python_version = "3.13"
+python_version = "3.14"
 use_uv_builder = true
 lambda_use_container_image = true
 lambda_architecture = "arm64"  # Cost savings

@@ -52,13 +52,13 @@ variable "enable_eks" {
 # =============================================================================
 
 variable "python_version" {
-  description = "Python version for Lambda/containers (e.g., '3.13')"
+  description = "Python version for Lambda/containers (e.g., '3.14')"
   type        = string
-  default     = "3.13"
+  default     = "3.14"
 
   validation {
-    condition     = can(regex("^3\\.(1[0-3]|[8-9])$", var.python_version))
-    error_message = "Python version must be 3.8 through 3.13"
+    condition     = can(regex("^3\\.(1[0-4]|[8-9])$", var.python_version))
+    error_message = "Python version must be 3.8 through 3.14"
   }
 }
 

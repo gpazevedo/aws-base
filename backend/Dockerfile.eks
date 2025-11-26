@@ -1,5 +1,5 @@
 # =============================================================================
-# Dockerfile for EKS (Python 3.13 + uv)
+# Dockerfile for EKS (Python 3.14 + uv)
 # =============================================================================
 # Multi-stage build for optimized EKS container images
 #
@@ -19,7 +19,7 @@ ARG SERVICE_FOLDER=api
 # For Python, we need dependencies compiled for the TARGET architecture
 # TARGETPLATFORM is automatically set by Docker BuildKit based on --platform flag
 ARG TARGETPLATFORM
-FROM --platform=$TARGETPLATFORM python:3.13-slim AS builder
+FROM --platform=$TARGETPLATFORM python:3.14-slim AS builder
 
 # Re-declare ARG after FROM (Docker requirement)
 ARG SERVICE_FOLDER=api
@@ -50,7 +50,7 @@ RUN rm -f test_*.py
 # Runtime stage - uses TARGET platform (deployment CPU)
 # TARGETPLATFORM is automatically set by Docker BuildKit based on --platform flag
 ARG TARGETPLATFORM
-FROM --platform=$TARGETPLATFORM python:3.13-slim
+FROM --platform=$TARGETPLATFORM python:3.14-slim
 
 # Create non-root user for security
 RUN groupadd -r appuser && useradd -r -g appuser appuser
@@ -61,7 +61,7 @@ WORKDIR /app
 COPY --from=builder /app /app
 
 # Copy Python dependencies from builder
-COPY --from=builder /usr/local/lib/python3.13/site-packages /usr/local/lib/python3.13/site-packages
+COPY --from=builder /usr/local/lib/python3.14/site-packages /usr/local/lib/python3.14/site-packages
 
 # Install uv in runtime
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv

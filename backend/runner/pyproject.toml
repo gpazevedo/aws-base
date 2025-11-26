@@ -9,7 +9,7 @@
 name = "runner"
 version = "0.1.0"
 description = "AppRunner service for AWS deployment"
-requires-python = ">=3.13"
+requires-python = ">=3.14"
 
 # Production dependencies only
 dependencies = [
@@ -58,6 +58,10 @@ addopts = [
     "--cov=.",
     "--cov-report=term-missing",
     "--cov-branch",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning:fastapi.routing",
+    "ignore::DeprecationWarning:pytest_asyncio.plugin",
 ]
 
 # =============================================================================

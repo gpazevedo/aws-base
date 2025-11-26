@@ -164,7 +164,7 @@ curl http://localhost:8080/api-health
 
 ## Development
 
-- Python 3.13+
+- Python 3.14+
 - Uses `uv` for dependency management
 - Follows async/await patterns throughout
 - All async code uses uvicorn for proper execution

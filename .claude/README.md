@@ -36,7 +36,7 @@ Use these commands by typing `/command-name` in your Claude Code chat:
 
 This is an AWS infrastructure project with:
 - **Compute Options**: Lambda (serverless), App Runner (containers), EKS (Kubernetes)
-- **Python 3.13** with `uv` for dependency management
+- **Python 3.14** with `uv` for dependency management
 - **Multi-service architecture** with path-based routing
 - **API Gateway** as single entry point for all services
 - **GitHub Actions** for CI/CD via OIDC

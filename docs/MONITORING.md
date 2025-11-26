@@ -601,12 +601,268 @@ aws budgets create-budget \
 
 ---
 
-## Best Practices
+## Structured Logging with Structlog
+
+This project uses **structlog** for structured JSON logging in all backend services. Structured logging provides better searchability, filtering, and analysis in CloudWatch Logs.
+
+### Why Structlog?
+
+**Traditional logging:**
+
+```python
+logger.info(f"User {user_id} accessed {endpoint} in {duration}ms")
+# Output: "User 12345 accessed /api/health in 42ms"
+# ❌ Hard to parse, search, or aggregate
+```
+
+**Structured logging with structlog:**
+
+```python
+logger.info("request_completed", user_id=12345, endpoint="/api/health", duration_ms=42)
+# Output: {"event": "request_completed", "user_id": 12345, "endpoint": "/api/health", "duration_ms": 42, "timestamp": "2025-01-20T12:34:56.789Z"}
+# ✅ Easy to parse, search, filter, and aggregate
+```
+
+### Configuration
+
+Structlog is already configured in all backend services (`backend/api/main.py`, `backend/runner/main.py`):
+
+```python
+import structlog
+
+def configure_logging() -> None:
+    """Configure structured logging with structlog."""
+    structlog.configure(
+        processors=[
+            structlog.contextvars.merge_contextvars,  # Add context variables
+            structlog.stdlib.filter_by_level,          # Filter by log level
+            structlog.processors.TimeStamper(fmt="iso"), # ISO timestamps
+            structlog.stdlib.add_logger_name,          # Add logger name
+            structlog.stdlib.add_log_level,            # Add log level
+            structlog.stdlib.PositionalArgumentsFormatter(),
+            structlog.processors.StackInfoRenderer(),  # Stack traces
+            structlog.processors.format_exc_info,      # Exception formatting
+            structlog.processors.UnicodeDecoder(),     # Handle Unicode
+            structlog.processors.JSONRenderer(),       # Output as JSON
+        ],
+        wrapper_class=structlog.stdlib.BoundLogger,
+        context_class=dict,
+        logger_factory=structlog.stdlib.LoggerFactory(),
+        cache_logger_on_first_use=True,
+    )
+
+# Get logger
+logger = structlog.get_logger()
+```
+
+### Usage Examples
+
+**Basic logging:**
+
+```python
+logger.info("user_logged_in", user_id=12345, username="alice")
+logger.warning("rate_limit_approaching", user_id=12345, current_rate=95, limit=100)
+logger.error("database_connection_failed", error=str(e), retry_count=3)
+```
+
+**Request logging (already implemented):**
+
+```python
+@app.middleware("http")
+async def logging_middleware(request: Request, call_next):
+    start_time = time.time()
+
+    # Add request context
+    structlog.contextvars.bind_contextvars(
+        path=request.url.path,
+        method=request.method,
+        client_ip=request.client.host,
+    )
+
+    logger.info("request_started")
+    response = await call_next(request)
+
+    duration = time.time() - start_time
+    logger.info(
+        "request_completed",
+        status_code=response.status_code,
+        duration_seconds=round(duration, 3),
+    )
+
+    return response
+```
+
+**Exception logging:**
+
+```python
+try:
+    result = await external_api_call()
+except httpx.RequestError as e:
+    logger.error(
+        "external_api_error",
+        api_url=api_url,
+        error=str(e),
+        retry_count=retries,
+    )
+    raise HTTPException(status_code=503, detail="Service unavailable") from e
+```
+
+**Context variables:**
+
+```python
+# Bind context for the entire request
+structlog.contextvars.bind_contextvars(
+    request_id=str(uuid.uuid4()),
+    user_id=user.id,
+)
+
+# All subsequent log entries will include these fields
+logger.info("processing_payment")  # Includes request_id and user_id
+logger.info("payment_completed")   # Includes request_id and user_id
+
+# Clear context when done
+structlog.contextvars.clear_contextvars()
+```
+
+### Searching Logs in CloudWatch
+
+**Search by specific fields:**
+
+```bash
+# Find all errors for a specific endpoint
+aws logs filter-log-events \
+  --log-group-name /aws/lambda/myproject-dev-api \
+  --filter-pattern '{ $.level = "error" && $.path = "/api/users" }'
+
+# Find slow requests (> 1 second)
+aws logs filter-log-events \
+  --log-group-name /aws/lambda/myproject-dev-api \
+  --filter-pattern '{ $.duration_seconds > 1 }'
+
+# Find requests from specific user
+aws logs filter-log-events \
+  --log-group-name /aws/lambda/myproject-dev-api \
+  --filter-pattern '{ $.user_id = "12345" }'
+```
+
+**CloudWatch Insights queries:**
+
+```sql
+-- Find average response time by endpoint
+fields @timestamp, path, duration_seconds
+| filter event = "request_completed"
+| stats avg(duration_seconds) as avg_duration by path
+| sort avg_duration desc
+
+-- Count errors by type
+fields @timestamp, event, error
+| filter level = "error"
+| stats count() by event
+| sort count desc
+
+-- Find P95 response time
+fields @timestamp, duration_seconds
+| filter event = "request_completed"
+| stats percentile(duration_seconds, 95) as p95
+```
+
+### Log Levels
+
+**Configure log level per environment:**
+
+```python
+class Settings(BaseSettings):
+    log_level: str = "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+
+settings = Settings()
+
+logging.basicConfig(
+    level=getattr(logging, settings.log_level.upper()),
+)
+```
+
+**Set via environment variables:**
+
+```bash
+# In Terraform
+environment {
+  variables = {
+    LOG_LEVEL = var.environment == "prod" ? "INFO" : "DEBUG"
+  }
+}
+```
+
+### Logging Best Practices
+
+**DO:**
+
+- ✅ Use structured fields instead of string formatting
+- ✅ Use consistent event names (`user_created`, `payment_processed`)
+- ✅ Include relevant context (user_id, request_id, etc.)
+- ✅ Log at appropriate levels (DEBUG for details, INFO for events, ERROR for problems)
+- ✅ Include error context and stack traces
+- ✅ Use snake_case for field names
+- ✅ Add timestamps automatically (configured by default)
+
+**DON'T:**
+
+- ❌ Log sensitive data (passwords, tokens, PII)
+- ❌ Use string formatting: `logger.info(f"User {user_id}")`
+- ❌ Log excessive data in production
+- ❌ Mix structured and unstructured logging
+- ❌ Use inconsistent field names
+
+**Example - Good logging:**
+
+```python
+logger.info(
+    "payment_processed",
+    user_id=user.id,
+    amount=payment.amount,
+    currency=payment.currency,
+    payment_id=payment.id,
+    payment_method="credit_card",
+    duration_ms=duration,
+)
+```
+
+**Example - Bad logging:**
+
+```python
+# ❌ Avoid this
+logger.info(f"Payment of ${payment.amount} processed for user {user.id}")
+```
+
+### Adding Structlog to New Services
+
+Structlog is already included in the service templates. When creating a new service, copy the logging configuration from existing services:
+
+```bash
+# Copy from existing service
+cp backend/api/main.py backend/newservice/main.py
+
+# The logging configuration is already set up!
+```
+
+### Integration with X-Ray
+
+Structlog works seamlessly with AWS X-Ray tracing. Log entries include trace IDs automatically when X-Ray is enabled, allowing you to correlate logs with traces.
+
+### Performance
+
+Structlog is highly optimized and adds minimal overhead:
+
+- **~1-2μs** per log entry in production
+- **Zero performance impact** when logs are filtered by level
+- **Async-safe** for FastAPI applications
+
+## Observability Best Practices
 
 ### Lambda
+
 - ✅ Enable X-Ray for distributed tracing
 - ✅ Set appropriate log retention (7-30 days)
-- ✅ Use structured logging (JSON)
+- ✅ Use structured logging (structlog) - already configured!
 - ✅ Monitor cold starts
 - ✅ Track custom business metrics
 

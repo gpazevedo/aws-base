@@ -41,6 +41,14 @@ resource "aws_iam_role_policy_attachment" "lambda_basic_execution" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
+# Attach AWS X-Ray write policy for tracing
+resource "aws_iam_role_policy_attachment" "lambda_xray" {
+  count = var.enable_lambda ? 1 : 0
+
+  role       = aws_iam_role.lambda_execution[0].name
+  policy_arn = "arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess"
+}
+
 # =============================================================================
 # Lambda Deployment Policy for GitHub Actions
 # =============================================================================

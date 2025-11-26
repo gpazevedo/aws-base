@@ -378,6 +378,11 @@ resource "aws_apprunner_service" "SERVICE_NAME_PLACEHOLDER" {
     unhealthy_threshold = var.health_check_unhealthy_threshold
   }
 
+  # X-Ray tracing configuration
+  observability_configuration {
+    observability_enabled = true
+  }
+
   auto_scaling_configuration_arn = aws_apprunner_auto_scaling_configuration_version.SERVICE_NAME_PLACEHOLDER.arn
 
   tags = {

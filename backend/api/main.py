@@ -1,11 +1,17 @@
 """Main FastAPI application with health checks and example endpoints."""
 
+import logging
 import time
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any
 
 import httpx
-from fastapi import FastAPI, HTTPException, Query
+import structlog
+from aws_xray_sdk.core import patch_all, xray_recorder
+from aws_xray_sdk.ext.fastapi.middleware import XRayMiddleware
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from mangum import Mangum
 from pydantic import BaseModel
@@ -24,12 +30,119 @@ class Settings(BaseSettings):
     # Service configuration
     service_name: str = "api"
     service_version: str = "0.1.0"
+    environment: str = "dev"
 
     # HTTP client settings
     http_timeout: float = 30.0
 
+    # Observability settings
+    enable_xray: bool = True
+    log_level: str = "INFO"
+
 
 settings = Settings()
+
+# Track application startup time for uptime calculation
+START_TIME = time.time()
+
+
+# =============================================================================
+# Logging Configuration
+# =============================================================================
+
+
+def configure_logging() -> None:
+    """Configure structured logging with structlog."""
+    structlog.configure(
+        processors=[
+            structlog.contextvars.merge_contextvars,
+            structlog.stdlib.filter_by_level,
+            structlog.processors.TimeStamper(fmt="iso"),
+            structlog.stdlib.add_logger_name,
+            structlog.stdlib.add_log_level,
+            structlog.stdlib.PositionalArgumentsFormatter(),
+            structlog.processors.StackInfoRenderer(),
+            structlog.processors.format_exc_info,
+            structlog.processors.UnicodeDecoder(),
+            structlog.processors.JSONRenderer(),
+        ],
+        wrapper_class=structlog.stdlib.BoundLogger,
+        context_class=dict,
+        logger_factory=structlog.stdlib.LoggerFactory(),
+        cache_logger_on_first_use=True,
+    )
+
+    # Set log level from settings
+    logging.basicConfig(
+        format="%(message)s",
+        level=getattr(logging, settings.log_level.upper()),
+    )
+
+
+# Configure logging on module import
+configure_logging()
+logger = structlog.get_logger()
+
+
+# =============================================================================
+# X-Ray Configuration
+# =============================================================================
+
+
+def configure_xray() -> None:
+    """Configure AWS X-Ray tracing."""
+    if settings.enable_xray:
+        # Patch libraries for automatic tracing
+        patch_all()
+
+        # Configure X-Ray recorder
+        xray_recorder.configure(
+            service=f"{settings.service_name}-{settings.environment}",
+            sampling=True,
+            context_missing="LOG_ERROR",
+        )
+
+        logger.info(
+            "xray_configured",
+            service=f"{settings.service_name}-{settings.environment}",
+        )
+
+
+# Configure X-Ray on module import
+configure_xray()
+
+
+# =============================================================================
+# Application Lifespan
+# =============================================================================
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """
+    Manage application lifespan with proper resource cleanup.
+
+    This modern FastAPI pattern replaces the deprecated @app.on_event decorators.
+    Resources are initialized on startup and cleaned up on shutdown.
+    """
+    # Startup: Initialize shared HTTP client
+    logger.info(
+        "application_startup",
+        service=settings.service_name,
+        version=settings.service_version,
+        environment=settings.environment,
+    )
+
+    app.state.http_client = httpx.AsyncClient(
+        timeout=httpx.Timeout(settings.http_timeout),
+        limits=httpx.Limits(max_keepalive_connections=5, max_connections=10),
+    )
+
+    yield  # Application runs here
+
+    # Shutdown: Clean up resources
+    logger.info("application_shutdown", service=settings.service_name)
+    await app.state.http_client.aclose()
 
 
 # =============================================================================
@@ -43,10 +156,51 @@ app = FastAPI(
     docs_url="/docs",  # Swagger UI
     redoc_url="/redoc",  # ReDoc
     openapi_url="/openapi.json",  # OpenAPI schema
+    lifespan=lifespan,
 )
 
-# Track application startup time for uptime calculation
-START_TIME = time.time()
+# Add X-Ray middleware
+if settings.enable_xray:
+    app.add_middleware(XRayMiddleware)
+
+
+# =============================================================================
+# Request Logging Middleware
+# =============================================================================
+
+
+@app.middleware("http")
+async def logging_middleware(request: Request, call_next):
+    """Log all HTTP requests with structured logging."""
+    start_time = time.time()
+
+    # Add request context to logs
+    structlog.contextvars.clear_contextvars()
+    structlog.contextvars.bind_contextvars(
+        path=request.url.path,
+        method=request.method,
+        client_ip=request.client.host if request.client else None,
+    )
+
+    logger.info(
+        "request_started",
+        path=request.url.path,
+        method=request.method,
+    )
+
+    response = await call_next(request)
+
+    duration = time.time() - start_time
+
+    logger.info(
+        "request_completed",
+        path=request.url.path,
+        method=request.method,
+        status_code=response.status_code,
+        duration_seconds=round(duration, 3),
+    )
+
+    return response
 
 # =============================================================================
 # Pydantic Models
@@ -226,6 +380,7 @@ async def call_service(
 
     This endpoint demonstrates service-to-service communication by calling
     any provided service URL and returning what it received.
+    Uses the shared HTTP client from app.state for connection pooling.
 
     Args:
         service_url: Full URL of the service endpoint to call (query parameter)
@@ -242,24 +397,43 @@ async def call_service(
     """
     start_time = time.time()
 
-    try:
-        async with httpx.AsyncClient(timeout=settings.http_timeout) as client:
-            response = await client.get(service_url)
-            response_time = (time.time() - start_time) * 1000  # Convert to ms
+    logger.info("calling_external_service", target_url=service_url)
 
-            # Return the response regardless of status code
-            return InterServiceResponse(
-                service_response=response.json(),
-                status_code=response.status_code,
-                response_time_ms=round(response_time, 2),
-                target_url=service_url,
-            )
+    try:
+        # Use shared HTTP client from app.state (initialized in lifespan)
+        response = await app.state.http_client.get(service_url)
+        response_time = (time.time() - start_time) * 1000  # Convert to ms
+
+        logger.info(
+            "external_service_response",
+            target_url=service_url,
+            status_code=response.status_code,
+            response_time_ms=round(response_time, 2),
+        )
+
+        # Return the response regardless of status code
+        return InterServiceResponse(
+            service_response=response.json(),
+            status_code=response.status_code,
+            response_time_ms=round(response_time, 2),
+            target_url=service_url,
+        )
     except httpx.RequestError as e:
+        logger.error(
+            "external_service_request_error",
+            target_url=service_url,
+            error=str(e),
+        )
         raise HTTPException(
             status_code=503,
             detail=f"Failed to reach service at {service_url}: {str(e)}",
         )
     except Exception as e:
+        logger.exception(
+            "external_service_unexpected_error",
+            target_url=service_url,
+            error=str(e),
+        )
         raise HTTPException(
             status_code=500,
             detail=f"Unexpected error calling service at {service_url}: {str(e)}",

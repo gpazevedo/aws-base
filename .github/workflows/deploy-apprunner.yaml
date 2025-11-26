@@ -108,6 +108,7 @@ jobs:
     permissions:
       id-token: write
       contents: read
+      deployments: write
     strategy:
       matrix:
         service: ${{ fromJSON(needs.detect-changes.outputs.services) }}
@@ -115,6 +116,16 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Start deployment
+        uses: bobheadxi/deployments@v1
+        id: deployment
+        with:
+          step: start
+          token: ${{ secrets.GITHUB_TOKEN }}
+          env: ${{ env.ENVIRONMENT }}-${{ matrix.service }}
+          ref: ${{ github.head_ref || github.ref }}
+          desc: Deploying AppRunner ${{ matrix.service }} to ${{ env.ENVIRONMENT }}
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -160,6 +171,7 @@ jobs:
           echo "SERVICE_ARN=${SERVICE_ARN}" >> $GITHUB_ENV
 
       - name: Wait for deployment to complete
+        id: wait-deploy
         run: |
           echo "Waiting for deployment to complete..."
           echo "Service ARN: ${SERVICE_ARN}"
@@ -178,6 +190,7 @@ jobs:
               # Get service URL
               SERVICE_URL=$(aws apprunner describe-service --service-arn "${SERVICE_ARN}" --query 'Service.ServiceUrl' --output text)
               echo "🌐 Service URL: https://${SERVICE_URL}"
+              echo "service_url=${SERVICE_URL}" >> $GITHUB_OUTPUT
               exit 0
             elif [ "$STATUS" == "CREATE_FAILED" ] || [ "$STATUS" == "UPDATE_FAILED" ]; then
               echo "❌ Deployment failed with status: ${STATUS}"
@@ -195,3 +208,24 @@ jobs:
 
           echo "⏱️ Deployment timed out after ${MAX_WAIT}s"
           exit 1
+
+      - name: Update deployment status (success)
+        if: success()
+        uses: bobheadxi/deployments@v1
+        with:
+          step: finish
+          token: ${{ secrets.GITHUB_TOKEN }}
+          status: ${{ job.status }}
+          env: ${{ steps.deployment.outputs.env }}
+          deployment_id: ${{ steps.deployment.outputs.deployment_id }}
+          env_url: https://${{ steps.wait-deploy.outputs.service_url }}
+
+      - name: Update deployment status (failure)
+        if: failure()
+        uses: bobheadxi/deployments@v1
+        with:
+          step: finish
+          token: ${{ secrets.GITHUB_TOKEN }}
+          status: ${{ job.status }}
+          env: ${{ steps.deployment.outputs.env }}
+          deployment_id: ${{ steps.deployment.outputs.deployment_id }}

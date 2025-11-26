@@ -278,6 +278,11 @@ resource "aws_lambda_function" "SERVICE_NAME_PLACEHOLDER" {
     log_group  = aws_cloudwatch_log_group.lambda_SERVICE_NAME_PLACEHOLDER.name
   }
 
+  # X-Ray tracing configuration
+  tracing_config {
+    mode = "Active"
+  }
+
   tags = {
     Name        = "${var.project_name}-${var.environment}-SERVICE_NAME_PLACEHOLDER"
     Service     = "SERVICE_NAME_PLACEHOLDER"

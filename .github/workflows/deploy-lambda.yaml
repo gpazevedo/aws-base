@@ -104,10 +104,13 @@ jobs:
     needs: detect-changes
     if: ${{ needs.detect-changes.outputs.services != '[]' }}
     runs-on: ubuntu-latest
-    environment: ${{ inputs.environment || 'dev' }}
+    environment:
+      name: ${{ inputs.environment || 'dev' }}
+      url: https://${{ env.AWS_REGION }}.console.aws.amazon.com/lambda/home?region=${{ env.AWS_REGION }}#/functions/${{ env.PROJECT_NAME }}-${{ inputs.environment || 'dev' }}-${{ matrix.service }}
     permissions:
       id-token: write
       contents: read
+      deployments: write
     strategy:
       matrix:
         service: ${{ fromJSON(needs.detect-changes.outputs.services) }}
@@ -115,6 +118,16 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Start deployment
+        uses: bobheadxi/deployments@v1
+        id: deployment
+        with:
+          step: start
+          token: ${{ secrets.GITHUB_TOKEN }}
+          env: ${{ env.ENVIRONMENT }}-${{ matrix.service }}
+          ref: ${{ github.head_ref || github.ref }}
+          desc: Deploying Lambda ${{ matrix.service }} to ${{ env.ENVIRONMENT }}
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -128,6 +141,7 @@ jobs:
           ./scripts/docker-push.sh ${{ env.ENVIRONMENT }} ${{ matrix.service }} Dockerfile.lambda
 
       - name: Update Lambda function
+        id: lambda-update
         run: |
           # Use the service-environment-latest tag for Lambda deployments
           ECR_REGISTRY="${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com"
@@ -136,3 +150,32 @@ jobs:
           aws lambda update-function-code \
             --function-name ${{ env.PROJECT_NAME }}-${{ env.ENVIRONMENT }}-${{ matrix.service }} \
             --image-uri "${IMAGE_URI}"
+
+          # Get Lambda function URL for deployment record
+          FUNCTION_ARN=$(aws lambda get-function \
+            --function-name ${{ env.PROJECT_NAME }}-${{ env.ENVIRONMENT }}-${{ matrix.service }} \
+            --query 'Configuration.FunctionArn' \
+            --output text)
+
+          echo "function_arn=${FUNCTION_ARN}" >> $GITHUB_OUTPUT
+
+      - name: Update deployment status (success)
+        if: success()
+        uses: bobheadxi/deployments@v1
+        with:
+          step: finish
+          token: ${{ secrets.GITHUB_TOKEN }}
+          status: ${{ job.status }}
+          env: ${{ steps.deployment.outputs.env }}
+          deployment_id: ${{ steps.deployment.outputs.deployment_id }}
+          env_url: https://${{ env.AWS_REGION }}.console.aws.amazon.com/lambda/home?region=${{ env.AWS_REGION }}#/functions/${{ env.PROJECT_NAME }}-${{ env.ENVIRONMENT }}-${{ matrix.service }}
+
+      - name: Update deployment status (failure)
+        if: failure()
+        uses: bobheadxi/deployments@v1
+        with:
+          step: finish
+          token: ${{ secrets.GITHUB_TOKEN }}
+          status: ${{ job.status }}
+          env: ${{ steps.deployment.outputs.env }}
+          deployment_id: ${{ steps.deployment.outputs.deployment_id }}

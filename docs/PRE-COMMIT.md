@@ -37,7 +37,11 @@ Automated code quality enforcement using **Ruff** (formatting + linting) and **P
 ### One-Time Setup
 
 ```bash
-# Install pre-commit hooks
+# 1. Install dependencies for all services (REQUIRED for type checking)
+cd backend/api && uv sync --extra test && cd ../..
+cd backend/runner && uv sync --extra test && cd ../..
+
+# 2. Install pre-commit hooks
 make setup-pre-commit
 
 # This will:
@@ -46,6 +50,8 @@ make setup-pre-commit
 # 3. Install git hooks
 # 4. Run initial check on all files
 ```
+
+> **⚠️ Critical:** Always run `uv sync --extra test` for each service **before** setting up pre-commit hooks. This installs test dependencies (pytest, pytest-cov, pytest-asyncio) required for pyright type checking. Without this, you'll see "Import 'pytest' could not be resolved" errors when running `make pre-commit-all` or committing code.
 
 ### Daily Usage
 
@@ -505,6 +511,56 @@ git diff .pre-commit-config.yaml
 
 # Test updated hooks
 make pre-commit-all
+```
+
+---
+
+## 🔧 Troubleshooting
+
+### Error: "Import 'pytest' could not be resolved"
+
+**Problem:** Pyright cannot find pytest or other test dependencies.
+
+**Cause:** Test dependencies not installed in the service's virtual environment.
+
+**Solution:**
+```bash
+# Install test dependencies for each service
+cd backend/api && uv sync --extra test && cd ../..
+cd backend/runner && uv sync --extra test && cd ../..
+
+# Now pre-commit hooks will work
+make pre-commit-all
+```
+
+**Why this happens:**
+
+- Each service has its own isolated virtual environment (`backend/*/.venv`)
+- Pyright uses `pyrightconfig.json` to find the correct venv for each service
+- Test dependencies (pytest, pytest-cov, pytest-asyncio) are optional extras
+- You must explicitly install them with `--extra test`
+
+### Error: Pre-commit hooks fail after pulling changes
+
+**Solution:**
+```bash
+# Re-install pre-commit hooks (picks up any new hooks)
+make setup-pre-commit
+
+# Update dependencies if pyproject.toml changed
+cd backend/api && uv sync --extra test && cd ../..
+cd backend/runner && uv sync --extra test && cd ../..
+```
+
+### Hooks are too slow
+
+**Check if running on many files:**
+```bash
+# Run on all files (slower)
+make pre-commit-all
+
+# Run only on staged files (faster, automatic on commit)
+git commit
 ```
 
 ---

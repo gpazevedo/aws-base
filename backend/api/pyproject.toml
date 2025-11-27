@@ -26,9 +26,13 @@ dependencies = [
     "boto3>=1.35.0,<2.0.0",
     "botocore>=1.35.0,<2.0.0",
 
-    # AWS X-Ray tracing
-    "aws-xray-sdk>=2.14.0,<3.0.0",
-    "xraysink>=1.6.0,<2.0.0",
+    # OpenTelemetry for distributed tracing
+    "opentelemetry-api>=1.27.0,<2.0.0",
+    "opentelemetry-sdk>=1.27.0,<2.0.0",
+    "opentelemetry-instrumentation-fastapi>=0.48b0,<1.0.0",
+    "opentelemetry-instrumentation-httpx>=0.48b0,<1.0.0",
+    "opentelemetry-instrumentation-boto3sqs>=0.48b0,<1.0.0",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.27.0,<2.0.0",
 
     # HTTP client
     "httpx>=0.27.0,<0.28.0",

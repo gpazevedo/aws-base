@@ -52,9 +52,6 @@ resource "aws_api_gateway_stage" "api" {
   rest_api_id   = aws_api_gateway_rest_api.api.id
   stage_name    = var.environment
 
-  # Enable X-Ray tracing
-  xray_tracing_enabled = var.enable_xray_tracing
-
   # Access logging
   access_log_settings {
     destination_arn = aws_cloudwatch_log_group.api_gateway.arn

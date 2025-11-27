@@ -378,7 +378,7 @@ resource "aws_apprunner_service" "SERVICE_NAME_PLACEHOLDER" {
     unhealthy_threshold = var.health_check_unhealthy_threshold
   }
 
-  # X-Ray tracing configuration
+  # Observability configuration (distributed tracing)
   observability_configuration {
     observability_enabled = true
   }
@@ -390,20 +390,11 @@ resource "aws_apprunner_service" "SERVICE_NAME_PLACEHOLDER" {
     Service     = "SERVICE_NAME_PLACEHOLDER"
     Description = "SERVICE_NAME_PLACEHOLDER App Runner service"
   }
-
-  # Note: Container image must exist in ECR before first apply
-  # Build and push with:
-  #   ./scripts/docker-push.sh ${var.environment} SERVICE_NAME_PLACEHOLDER Dockerfile.apprunner
-  lifecycle {
-    ignore_changes = [
-      source_configuration[0].image_repository[0].image_identifier
-    ]
-  }
 }
 
 # Auto Scaling Configuration
 resource "aws_apprunner_auto_scaling_configuration_version" "SERVICE_NAME_PLACEHOLDER" {
-  auto_scaling_configuration_name = "${var.project_name}-${var.environment}-SERVICE_NAME_PLACEHOLDER-autoscaling"
+  auto_scaling_configuration_name = "${var.project_name}-${var.environment}-SERVICE_NAME_PLACEHOLDER-as"
 
   # Uses per-service config if available, otherwise defaults
   min_size         = try(var.apprunner_service_configs["SERVICE_NAME_PLACEHOLDER"].min_instances, var.apprunner_min_instances)
@@ -411,7 +402,7 @@ resource "aws_apprunner_auto_scaling_configuration_version" "SERVICE_NAME_PLACEH
   max_concurrency  = try(var.apprunner_service_configs["SERVICE_NAME_PLACEHOLDER"].max_concurrency, var.apprunner_max_concurrency)
 
   tags = {
-    Name    = "${var.project_name}-${var.environment}-SERVICE_NAME_PLACEHOLDER-autoscaling"
+    Name    = "${var.project_name}-${var.environment}-SERVICE_NAME_PLACEHOLDER-as"
     Service = "SERVICE_NAME_PLACEHOLDER"
   }
 }

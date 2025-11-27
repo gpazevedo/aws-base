@@ -1,7 +1,9 @@
 """Main FastAPI application with health checks and example endpoints."""
 
+import asyncio
 import logging
 import os
+import sys
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -10,15 +12,18 @@ from typing import Any
 
 import httpx
 import structlog
-from aws_xray_sdk.core import patch_all, xray_recorder
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from mangum import Mangum
+from opentelemetry import trace
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from pydantic import BaseModel
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from starlette.middleware.base import BaseHTTPMiddleware
-from xraysink.asgi.middleware import xray_middleware
-from xraysink.context import AsyncContext
 
 # =============================================================================
 # Configuration
@@ -32,15 +37,16 @@ class Settings(BaseSettings):
 
     # Service configuration
     service_name: str = "api"
-    service_version: str = "0.1.0"
+    service_version: str = "0.2.0"  # Updated for ADOT migration with Lambda fix
     environment: str = "dev"
 
     # HTTP client settings
     http_timeout: float = 30.0
 
     # Observability settings
-    enable_xray: bool = True
+    enable_tracing: bool = True
     log_level: str = "INFO"
+    otlp_endpoint: str = "http://localhost:4317"  # ADOT collector endpoint
 
 
 settings = Settings()
@@ -86,35 +92,84 @@ def configure_logging() -> None:
 configure_logging()
 logger = structlog.get_logger()
 
+# Log module initialization to verify deployment
+logger.info(
+    "module_initialization",
+    service_version="0.2.0",
+    is_lambda=bool(os.getenv("AWS_LAMBDA_FUNCTION_NAME")),
+    python_version=f"{sys.version_info.major}.{sys.version_info.minor}",
+)
+
 
 # =============================================================================
-# X-Ray Configuration
+# OpenTelemetry Configuration
 # =============================================================================
 
 
-def configure_xray() -> None:
-    """Configure AWS X-Ray tracing."""
-    # Disable X-Ray during tests
+def configure_tracing(app: FastAPI | None = None) -> None:
+    """Configure OpenTelemetry tracing with ADOT."""
+    logger.info(
+        "tracing_configuration_starting",
+        enable_tracing=settings.enable_tracing,
+        is_test=bool(os.getenv("PYTEST_CURRENT_TEST")),
+        is_lambda=bool(os.getenv("AWS_LAMBDA_FUNCTION_NAME")),
+        app_provided=app is not None,
+    )
+
+    # Disable tracing during tests
     if os.getenv("PYTEST_CURRENT_TEST"):
-        xray_recorder.configure(context_missing="LOG_ERROR")
-        logger.info("xray_disabled", reason="test_environment")
+        logger.info("tracing_disabled", reason="test_environment")
         return
 
-    if settings.enable_xray:
-        # Patch libraries for automatic tracing
-        patch_all()
-
-        # Configure X-Ray recorder with AsyncContext for FastAPI compatibility
-        xray_recorder.configure(
-            context=AsyncContext(),
-            service=f"{settings.service_name}-{settings.environment}",
-            sampling=True,
-            context_missing="LOG_ERROR",
+    # Disable application-level tracing in Lambda - use ADOT Lambda Layer instead
+    if os.getenv("AWS_LAMBDA_FUNCTION_NAME"):
+        logger.info(
+            "tracing_disabled",
+            reason="lambda_environment",
+            message="Use ADOT Lambda Layer for tracing instead of application instrumentation",
         )
+        return
+
+    if settings.enable_tracing:
+        logger.info("initializing_otel_components")
+
+        # Create resource with service information
+        resource = Resource.create(
+            {
+                "service.name": f"{settings.service_name}-{settings.environment}",
+                "service.version": settings.service_version,
+                "deployment.environment": settings.environment,
+            }
+        )
+        logger.info("otel_resource_created")
+
+        # Configure OTLP exporter to send traces to ADOT collector
+        otlp_exporter = OTLPSpanExporter(
+            endpoint=settings.otlp_endpoint,
+            insecure=True,  # Use insecure for local ADOT collector
+        )
+        logger.info("otlp_exporter_created", endpoint=settings.otlp_endpoint)
+
+        # Set up tracer provider with batch span processor
+        provider = TracerProvider(resource=resource)
+        processor = BatchSpanProcessor(otlp_exporter)
+        provider.add_span_processor(processor)
+        trace.set_tracer_provider(provider)
+        logger.info("tracer_provider_configured")
+
+        # Instrument HTTPX client for automatic tracing
+        HTTPXClientInstrumentor().instrument()
+        logger.info("httpx_instrumented")
+
+        # Instrument FastAPI app if provided (called from lifespan)
+        if app is not None:
+            FastAPIInstrumentor.instrument_app(app)
+            logger.info("fastapi_instrumented")
 
         logger.info(
-            "xray_configured",
+            "tracing_configured",
             service=f"{settings.service_name}-{settings.environment}",
+            otlp_endpoint=settings.otlp_endpoint,
         )
 
 
@@ -131,8 +186,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     This modern FastAPI pattern replaces the deprecated @app.on_event decorators.
     Resources are initialized on startup and cleaned up on shutdown.
     """
-    # Startup: Configure X-Ray and initialize shared HTTP client
-    configure_xray()
+    logger.info(
+        "lifespan_startup_begin",
+        is_lambda=bool(os.getenv("AWS_LAMBDA_FUNCTION_NAME")),
+        aws_execution_env=os.getenv("AWS_EXECUTION_ENV", "not_set"),
+    )
+
+    # Startup: Configure tracing and initialize shared HTTP client
+    configure_tracing(app)
 
     logger.info(
         "application_startup",
@@ -167,9 +228,8 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Add X-Ray middleware (skip during tests)
-if settings.enable_xray and not os.getenv("PYTEST_CURRENT_TEST"):
-    app.add_middleware(BaseHTTPMiddleware, dispatch=xray_middleware)
+# Note: FastAPI instrumentation is now done in the lifespan startup
+# to avoid event loop issues in Lambda environments
 
 
 # =============================================================================
@@ -487,7 +547,27 @@ async def not_found_handler(request: Any, exc: Any) -> JSONResponse:
 # =============================================================================
 
 # Mangum adapter to run FastAPI on AWS Lambda
-handler = Mangum(app, lifespan="off")
+# Python 3.14 compatibility: Explicitly manage event loop for Lambda
+
+
+def handler(event, context):
+    """
+    AWS Lambda handler with Python 3.14 asyncio compatibility.
+
+    Python 3.14 removed the implicit event loop from asyncio.get_event_loop().
+    We need to explicitly create and set an event loop for Mangum to work.
+    """
+    # Create a new event loop for this Lambda invocation
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    try:
+        # Create Mangum handler with the app (lifespan="off" to avoid double initialization)
+        mangum_handler = Mangum(app, lifespan="off")
+        return mangum_handler(event, context)
+    finally:
+        # Clean up the event loop after the request
+        loop.close()
 
 
 # =============================================================================

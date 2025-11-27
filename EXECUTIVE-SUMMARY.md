@@ -59,7 +59,7 @@ make app-init-dev app-apply-dev
 
 ✅ **Observability**
 - CloudWatch Logs with configurable retention
-- AWS X-Ray distributed tracing
+- Distributed tracing with OpenTelemetry/ADOT
 - Structured JSON logging
 - CloudWatch Metrics and Alarms ready
 
@@ -398,7 +398,7 @@ Total:              ~$40/month
 
 **Audit & Monitoring:**
 - CloudWatch Logs with retention policies
-- AWS X-Ray for distributed tracing
+- Distributed tracing with OpenTelemetry/ADOT
 - CloudTrail integration (manual setup)
 - Structured JSON logging for SIEM integration
 

@@ -1,0 +1,31 @@
+{
+  "include": [
+    "backend/api",
+    "backend/runner"
+  ],
+  "exclude": [
+    "**/__pycache__",
+    "**/.venv",
+    "**/node_modules"
+  ],
+  "executionEnvironments": [
+    {
+      "root": "backend/api",
+      "pythonVersion": "3.14",
+      "pythonPlatform": "Linux",
+      "extraPaths": [],
+      "venv": "backend/api/.venv"
+    },
+    {
+      "root": "backend/runner",
+      "pythonVersion": "3.14",
+      "pythonPlatform": "Linux",
+      "extraPaths": [],
+      "venv": "backend/runner/.venv"
+    }
+  ],
+  "reportMissingImports": "error",
+  "reportMissingTypeStubs": "warning",
+  "pythonVersion": "3.14",
+  "typeCheckingMode": "basic"
+}

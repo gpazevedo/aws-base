@@ -36,7 +36,14 @@ Create your service directory in `backend/<service-name>`:
 mkdir -p backend/worker
 cp backend/api/main.py backend/worker/main.py
 cp backend/api/pyproject.toml backend/worker/pyproject.toml
+
+# Install dependencies (including test dependencies for type checking)
+cd backend/worker
+uv sync --extra test
+cd ../..
 ```
+
+> **⚠️ Important:** Always run `uv sync --extra test` after creating a service. This installs test dependencies (pytest, pytest-cov) required for type checking and running tests. Without this, you'll see "Import 'pytest' could not be resolved" errors.
 
 ### 3. Deploy
 
@@ -80,7 +87,20 @@ App Runner is best for long-running web apps, WebSockets, or high-concurrency se
 
 ### 2. Create Application Code
 
-Same as Lambda, but use `Dockerfile.apprunner` for building.
+Create your service directory (same as Lambda):
+
+```bash
+mkdir -p backend/web
+cp backend/runner/main.py backend/web/main.py
+cp backend/runner/pyproject.toml backend/web/pyproject.toml
+
+# Install dependencies (including test dependencies for type checking)
+cd backend/web
+uv sync --extra test
+cd ../..
+```
+
+> **⚠️ Important:** Always run `uv sync --extra test` to install test dependencies required for type checking.
 
 ### 3. Deploy
 

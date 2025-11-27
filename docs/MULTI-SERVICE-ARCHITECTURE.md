@@ -217,7 +217,6 @@ api_throttle_rate_limit  = 10000
 # Logging
 api_log_retention_days = 7
 api_logging_level      = "INFO"
-enable_xray_tracing    = true
 
 # API Key (optional)
 enable_api_key = false

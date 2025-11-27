@@ -207,12 +207,6 @@ variable "enable_api_data_trace" {
   default     = false
 }
 
-variable "enable_xray_tracing" {
-  description = "Enable AWS X-Ray tracing for API Gateway"
-  type        = bool
-  default     = false
-}
-
 # Caching
 variable "enable_api_caching" {
   description = "Enable API Gateway caching"
@@ -420,7 +414,6 @@ api_throttle_rate_limit  = $([ "$ENV" = "prod" ] && echo "10000" || echo "500")
 api_log_retention_days = $([ "$ENV" = "prod" ] && echo "30" || echo "7")
 api_logging_level      = "INFO"
 enable_api_data_trace  = false
-enable_xray_tracing    = $([ "$ENV" = "prod" ] && echo "false" || echo "true")
 
 # Caching
 enable_api_caching = false
@@ -492,7 +485,6 @@ module "api_gateway_shared" {
   log_retention_days   = var.api_log_retention_days
   api_logging_level    = var.api_logging_level
   enable_data_trace    = var.enable_api_data_trace
-  enable_xray_tracing  = var.enable_xray_tracing
 
   # Caching
   enable_caching = var.enable_api_caching

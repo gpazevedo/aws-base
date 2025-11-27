@@ -72,12 +72,6 @@ variable "enable_data_trace" {
   default     = false
 }
 
-variable "enable_xray_tracing" {
-  description = "Enable AWS X-Ray tracing for API Gateway"
-  type        = bool
-  default     = false
-}
-
 # =============================================================================
 # Caching
 # =============================================================================

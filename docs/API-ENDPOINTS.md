@@ -445,7 +445,7 @@ xdg-open "$PRIMARY_URL/docs"  # Linux
 - ✅ Rate limiting and throttling (configurable)
 - ✅ **API Key authentication** (optional)
 - ✅ CloudWatch access logs
-- ✅ X-Ray distributed tracing
+- ✅ Distributed tracing (OpenTelemetry/ADOT)
 - ✅ CORS configuration
 - ✅ WAF integration ready
 - ✅ Custom domain support
@@ -516,7 +516,6 @@ api_throttle_rate_limit  = 10000 # Requests per second
 # Logging
 api_log_retention_days = 7
 api_logging_level      = "INFO"  # OFF, ERROR, INFO
-enable_xray_tracing    = true
 
 # CORS
 cors_allow_origins = ["*"]

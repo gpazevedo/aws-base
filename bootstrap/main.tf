@@ -383,15 +383,6 @@ resource "aws_iam_policy" "api_gateway_management" {
           "wafv2:ListWebACLs"
         ]
         Resource = "*"
-      },
-      # X-Ray (for tracing)
-      {
-        Effect = "Allow"
-        Action = [
-          "xray:PutTraceSegments",
-          "xray:PutTelemetryRecords"
-        ]
-        Resource = "*"
       }
     ]
   })

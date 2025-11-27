@@ -35,9 +35,19 @@ Please explain the architecture of this AWS infrastructure project including:
    - AppRunner: amd64 (x86_64)
    - Tag format: `{service}-{env}-latest`
 
-8. **Current Deployment Status**:
-   - API Gateway URL and path routing
-   - Deployed services and health endpoints
-   - Testing commands
+8. **Python 3.14 Compatibility**:
+   - Event loop management in Lambda handlers
+   - HTTP client reuse across warm container invocations
+   - Performance optimizations
+
+9. **AWS Service Integrations**:
+   - Amazon Bedrock (Titan embeddings) - s3vector service
+   - S3 vector storage
+   - IAM policies from bootstrap layer
+
+10. **Current Deployment Status**:
+    - API Gateway URL and path routing
+    - Deployed services and health endpoints
+    - Testing commands
 
 Provide a clear overview with examples, suitable for someone new to the project. Reference the MULTI-SERVICE-ARCHITECTURE.md document.

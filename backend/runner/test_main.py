@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-# Set environment variable before importing app to prevent X-Ray initialization
+# Set environment variable before importing app to prevent tracing initialization
 os.environ["PYTEST_CURRENT_TEST"] = "true"
 
 from fastapi.testclient import TestClient

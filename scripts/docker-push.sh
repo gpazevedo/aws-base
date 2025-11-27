@@ -268,6 +268,47 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
+# -----------------------------------------------------------------------------
+# After image is pushed (write the created tag into Terraform files so the
+# lambda/app-runner TF uses the pushed image)
+# -----------------------------------------------------------------------------
+TF_DIR="terraform"
+LAMBDA_TF_FILE="$TF_DIR/lambda-${SERVICE}.tf"
+APPRUNNER_TF_FILE="$TF_DIR/apprunner-${SERVICE}.tf"
+
+# Determine ECR repository URI. Prefer explicit ECR_REPOSITORY_URI env var,
+# otherwise try to query AWS ECR for repository named for the service.
+if [ -n "${ECR_REPOSITORY_URI:-}" ]; then
+  ECR_URI="$ECR_REPOSITORY_URI"
+else
+  REPO_NAME="${ECR_REPOSITORY:-${SERVICE}}"
+  ECR_URI="$(aws ecr describe-repositories --repository-names "$REPO_NAME" --query 'repositories[0].repositoryUri' --output text 2>/dev/null || true)"
+fi
+
+if [ -z "$ECR_URI" ]; then
+  echo "❌ Could not determine ECR repository URI. Set ECR_REPOSITORY_URI or ensure repository exists."
+  exit 1
+fi
+
+IMAGE_URI="${ECR_URI}:${PRIMARY_TAG}"
+
+# # Tag & push (ensure docker image exists locally as $LOCAL_IMAGE)
+# docker tag "${LOCAL_IMAGE:-${SERVICE}:latest}" "${IMAGE_URI}"
+# docker push "${IMAGE_URI}"
+
+# Update lambda-*.tf image_uri if file exists
+if [ -f "$LAMBDA_TF_FILE" ]; then
+  sed -i "s|^[[:space:]]*image_uri[[:space:]]*=.*$|  image_uri    = \"${IMAGE_URI}\"|" "$LAMBDA_TF_FILE" || true
+  echo "✅ Wrote image_uri = ${IMAGE_URI} to ${LAMBDA_TF_FILE}"
+fi
+
+# Update apprunner-*.tf image_identifier if file exists
+if [ -f "$APPRUNNER_TF_FILE" ]; then
+  sed -i "s|^[[:space:]]*image_identifier[[:space:]]*=.*$|  image_identifier = \"${IMAGE_URI}\"|" "$APPRUNNER_TF_FILE" || true
+  echo "✅ Wrote image_identifier = ${IMAGE_URI} to ${APPRUNNER_TF_FILE}"
+fi
+# =============================================================================
+
 echo ""
 echo -e "${GREEN}✅ Successfully pushed images to ECR!${NC}"
 echo ""

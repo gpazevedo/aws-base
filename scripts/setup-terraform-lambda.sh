@@ -278,7 +278,7 @@ resource "aws_lambda_function" "SERVICE_NAME_PLACEHOLDER" {
     log_group  = aws_cloudwatch_log_group.lambda_SERVICE_NAME_PLACEHOLDER.name
   }
 
-  # X-Ray tracing configuration
+  # Distributed tracing configuration
   tracing_config {
     mode = "Active"
   }
@@ -287,15 +287,6 @@ resource "aws_lambda_function" "SERVICE_NAME_PLACEHOLDER" {
     Name        = "${var.project_name}-${var.environment}-SERVICE_NAME_PLACEHOLDER"
     Service     = "SERVICE_NAME_PLACEHOLDER"
     Description = "SERVICE_NAME_PLACEHOLDER Lambda function"
-  }
-
-  # Note: Image must exist in ECR before first apply
-  # Build and push with:
-  #   ./scripts/docker-push.sh ${var.environment} SERVICE_NAME_PLACEHOLDER Dockerfile.lambda
-  lifecycle {
-    ignore_changes = [
-      image_uri  # Allow image updates without Terraform (managed by CI/CD)
-    ]
   }
 }
 

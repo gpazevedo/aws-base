@@ -40,7 +40,7 @@ This bootstrap is designed to be **run once per AWS account/environment** and pr
 5. **Lambda Resources** (when `enable_lambda = true`)
    - Lambda execution role
    - CloudWatch Logs permissions
-   - X-Ray tracing (optional)
+   - Distributed tracing support (OpenTelemetry/ADOT via Lambda layer)
    - VPC access (optional)
    - GitHub Actions deployment permissions
 
@@ -929,14 +929,14 @@ Each compute option has **separate IAM roles** with minimal permissions:
 - Read/write to ECR
 - Read from S3 state bucket
 - CloudWatch Logs (write only)
-- **API Gateway management** (REST API, usage plans, deployments)
+- **API Gateway management** (REST API, usage plans, deployments, distributed tracing)
 - Lambda Function URL configuration (for local development)
 
 **App Runner Deployment Role:**
 - Create/update App Runner services
 - Read/write to ECR
 - Read from S3 state bucket
-- **API Gateway management** (REST API, usage plans, deployments)
+- **API Gateway management** (REST API, usage plans, deployments, distributed tracing)
 - VPC Link configuration (for API Gateway integration)
 
 **EKS Deployment Role:**

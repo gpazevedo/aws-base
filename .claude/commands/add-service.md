@@ -23,8 +23,9 @@ I want to add a new backend service to the project. Please help me:
 
 4. Create backend code structure:
    - Directory: `backend/<service-name>/`
-   - Copy and customize: main.py, pyproject.toml
+   - Copy and customize from existing service: main.py, pyproject.toml
    - Health endpoints: /health, /liveness, /readiness
+   - Ensure Python 3.14 compatible Lambda handler (event loop management)
 
 5. Build and deploy:
    - Lambda: `./scripts/docker-push.sh dev <service> Dockerfile.lambda`
@@ -37,5 +38,10 @@ I want to add a new backend service to the project. Please help me:
    - Make target: `make test-<type>-<service>`
 
 7. Explain the multi-service architecture and path-based routing
+
+8. Optional AWS service integrations:
+   - Bedrock (embeddings): Attach `bedrock_invocation_policy_arn` from bootstrap
+   - S3 (vector storage): Attach `s3_vector_service_policy_arn` from bootstrap
+   - DynamoDB, SQS, etc.: Add appropriate IAM policy attachments
 
 Walk me through the entire process step by step.

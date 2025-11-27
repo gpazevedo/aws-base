@@ -12,6 +12,7 @@ Complete guide for integrating AWS services (SQS, DynamoDB, S3, etc.) with your 
 - [Adding DynamoDB](#adding-dynamodb)
 - [Adding S3 Bucket](#adding-s3-bucket)
 - [Quick Reference: Common AWS Services](#quick-reference-common-aws-services)
+- [GitHub Actions IAM Permissions](#github-actions-iam-permissions)
 - [Best Practices](#best-practices)
 
 ---
@@ -82,6 +83,7 @@ AWS services like SQS, DynamoDB, S3, and RDS can be integrated with your Lambda 
 **Use case:** Asynchronous job processing, decoupling services, event-driven architectures
 
 **Benefits:**
+
 - Decouple services for better resilience
 - Handle traffic spikes with buffering
 - Reliable message delivery with retries
@@ -261,101 +263,179 @@ resource "aws_iam_role_policy" "apprunner_worker_sqs" {
 
 ### Step 4: Update Application Code
 
-Edit `backend/worker/main.py`:
+Edit `backend/worker/main.py` to add SQS integration with structured logging and OpenTelemetry tracing:
 
 ```python
 """Worker service with SQS integration."""
 
-import os
 import json
+from typing import Any
+
 import boto3
+import structlog
+from botocore.exceptions import ClientError
 from fastapi import FastAPI, HTTPException
-from mangum import Mangum
+from opentelemetry.instrumentation.boto3sqs import Boto3SQSInstrumentor
+from pydantic import BaseModel
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# =============================================================================
+# Configuration
+# =============================================================================
+
+logger = structlog.get_logger()
+
+
+class Settings(BaseSettings):
+    """Application settings loaded from environment variables."""
+
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
+    # AWS configuration
+    aws_region: str = "us-east-1"
+    jobs_queue_url: str = ""
+
+    # Service configuration
+    service_name: str = "worker"
+    environment: str = "dev"
+
+
+settings = Settings()
+
+# =============================================================================
+# Application
+# =============================================================================
 
 app = FastAPI(title="Worker Service")
 
-# Initialize SQS client
-sqs = boto3.client('sqs', region_name=os.getenv('AWS_REGION', 'us-east-1'))
-QUEUE_URL = os.getenv('JOBS_QUEUE_URL')
+# Initialize SQS client with OpenTelemetry instrumentation
+Boto3SQSInstrumentor().instrument()
+sqs = boto3.client("sqs", region_name=settings.aws_region)
+
+
+class JobData(BaseModel):
+    """Job data model."""
+
+    job_type: str = "default"
+    data: dict[str, Any]
+
 
 @app.post("/jobs")
-async def create_job(job_data: dict):
-    """Send job to SQS queue."""
-    if not QUEUE_URL:
+async def create_job(job: JobData) -> dict[str, Any]:
+    """Send job to SQS queue with structured logging and distributed tracing."""
+    if not settings.jobs_queue_url:
+        logger.error("sqs_queue_not_configured", service=settings.service_name)
         raise HTTPException(status_code=500, detail="Queue URL not configured")
 
     try:
-        response = sqs.send_message(
-            QueueUrl=QUEUE_URL,
-            MessageBody=json.dumps(job_data),
-            MessageAttributes={
-                'JobType': {
-                    'StringValue': job_data.get('type', 'default'),
-                    'DataType': 'String'
-                }
-            }
+        logger.info(
+            "sqs_send_message_attempt",
+            queue_url=settings.jobs_queue_url,
+            job_type=job.job_type,
         )
+
+        response = sqs.send_message(
+            QueueUrl=settings.jobs_queue_url,
+            MessageBody=json.dumps(job.data),
+            MessageAttributes={"JobType": {"StringValue": job.job_type, "DataType": "String"}},
+        )
+
+        logger.info("sqs_message_sent", message_id=response["MessageId"], job_type=job.job_type)
 
         return {
             "message": "Job queued successfully",
-            "message_id": response['MessageId'],
-            "data": job_data
+            "message_id": response["MessageId"],
+            "job_type": job.job_type,
         }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to queue job: {str(e)}")
+
+    except ClientError as e:
+        error_code = e.response.get("Error", {}).get("Code", "Unknown")
+        error_message = e.response.get("Error", {}).get("Message", str(e))
+        logger.error("sqs_send_message_failed", error_code=error_code, job_type=job.job_type)
+        raise HTTPException(status_code=500, detail=f"Failed to queue job: {error_message}") from e
+
 
 @app.get("/jobs/process")
-async def process_jobs():
-    """Process jobs from SQS queue."""
-    if not QUEUE_URL:
+async def process_jobs() -> dict[str, Any]:
+    """Process jobs from SQS queue with structured logging."""
+    if not settings.jobs_queue_url:
+        logger.error("sqs_queue_not_configured", service=settings.service_name)
         raise HTTPException(status_code=500, detail="Queue URL not configured")
 
     try:
-        # Receive messages (long polling)
+        logger.info("sqs_receive_messages_attempt", queue_url=settings.jobs_queue_url)
+
+        # Receive messages (long polling for cost efficiency)
         response = sqs.receive_message(
-            QueueUrl=QUEUE_URL,
+            QueueUrl=settings.jobs_queue_url,
             MaxNumberOfMessages=10,
             WaitTimeSeconds=20,
-            MessageAttributeNames=['All']
+            MessageAttributeNames=["All"],
         )
 
-        messages = response.get('Messages', [])
+        messages = response.get("Messages", [])
         processed = []
 
+        logger.info("sqs_messages_received", message_count=len(messages))
+
         for message in messages:
-            # Process message
-            body = json.loads(message['Body'])
+            try:
+                body = json.loads(message["Body"])
+                job_type = (
+                    message.get("MessageAttributes", {}).get("JobType", {}).get("StringValue", "unknown")
+                )
 
-            # Your processing logic here
-            result = {"status": "processed", "data": body}
-            processed.append(result)
+                logger.info("processing_job", message_id=message["MessageId"], job_type=job_type)
 
-            # Delete message from queue
-            sqs.delete_message(
-                QueueUrl=QUEUE_URL,
-                ReceiptHandle=message['ReceiptHandle']
-            )
+                # Your processing logic here
+                result = {"status": "processed", "data": body, "job_type": job_type}
+                processed.append(result)
 
-        return {
-            "processed": len(processed),
-            "results": processed
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to process jobs: {str(e)}")
+                # Delete message from queue after successful processing
+                sqs.delete_message(
+                    QueueUrl=settings.jobs_queue_url,
+                    ReceiptHandle=message["ReceiptHandle"],
+                )
 
-handler = Mangum(app, lifespan="off")
+                logger.info("job_processed_success", message_id=message["MessageId"], job_type=job_type)
+
+            except Exception as e:
+                logger.error(
+                    "job_processing_failed",
+                    error=str(e),
+                    message_id=message.get("MessageId"),
+                )
+                # Message stays in queue for retry or moves to DLQ after max retries
+
+        return {"processed": len(processed), "results": processed}
+
+    except ClientError as e:
+        error_code = e.response.get("Error", {}).get("Code", "Unknown")
+        logger.error("sqs_receive_messages_failed", error_code=error_code)
+        raise HTTPException(status_code=500, detail=f"Failed to process jobs: {error_code}") from e
 ```
 
-### Step 5: Add boto3 Dependency
+**Key Features:**
 
-Edit `backend/worker/pyproject.toml`:
+- ✅ Structured logging with structlog for JSON logs
+- ✅ OpenTelemetry instrumentation for distributed tracing
+- ✅ Pydantic Settings for configuration management
+- ✅ Type hints for better code quality
+- ✅ Proper error handling with ClientError
+- ✅ Long polling (20 seconds) for cost efficiency
+
+### Step 5: Add boto3 Dependencies
+
+The dependencies are already included in `backend/worker/pyproject.toml` if created using the setup script. Verify these lines exist:
 
 ```toml
 [project]
 dependencies = [
-    "fastapi>=0.115.6",
-    "mangum>=0.19.0",
-    "boto3>=1.35.0",  # Add boto3
+    # ... other dependencies ...
+    "boto3>=1.35.0,<2.0.0",
+    "botocore>=1.35.0,<2.0.0",
+    "opentelemetry-instrumentation-boto3sqs>=0.48b0,<1.0.0",  # For SQS tracing
+    "structlog>=24.4.0,<25.0.0",  # Structured logging
 ]
 ```
 
@@ -573,82 +653,174 @@ resource "aws_iam_role_policy" "api_dynamodb" {
 
 ### Step 4: Update Application Code
 
-Edit `backend/api/main.py`:
+Add DynamoDB integration to your service with structured logging and OpenTelemetry. Here's an example for `backend/api/main.py`:
 
 ```python
 """API service with DynamoDB integration."""
 
-import os
+from datetime import UTC, datetime
+from typing import Any
+
 import boto3
-from datetime import datetime
+import structlog
+from botocore.exceptions import ClientError
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-from mangum import Mangum
+from pydantic import BaseModel, EmailStr
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# =============================================================================
+# Configuration
+# =============================================================================
+
+logger = structlog.get_logger()
+
+
+class Settings(BaseSettings):
+    """Application settings loaded from environment variables."""
+
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
+    # AWS configuration
+    aws_region: str = "us-east-1"
+    users_table_name: str = ""
+
+    # Service configuration
+    service_name: str = "api"
+    environment: str = "dev"
+
+
+settings = Settings()
+
+# =============================================================================
+# Application
+# =============================================================================
 
 app = FastAPI(title="API Service")
 
-# Initialize DynamoDB
-dynamodb = boto3.resource('dynamodb', region_name=os.getenv('AWS_REGION', 'us-east-1'))
-table_name = os.getenv('USERS_TABLE_NAME')
-table = dynamodb.Table(table_name) if table_name else None
+# Initialize DynamoDB resource
+# Note: boto3 resource automatically gets OpenTelemetry instrumentation
+# when opentelemetry-instrumentation-boto3sqs is installed
+dynamodb = boto3.resource("dynamodb", region_name=settings.aws_region)
+table = dynamodb.Table(settings.users_table_name) if settings.users_table_name else None
+
 
 class User(BaseModel):
+    """User data model with validation."""
+
+    user_id: str
+    name: str
+    email: EmailStr
+
+
+class UserResponse(BaseModel):
+    """User response model."""
+
     user_id: str
     name: str
     email: str
+    created_at: str
 
-@app.post("/users")
-async def create_user(user: User):
-    """Create a new user in DynamoDB."""
+
+@app.post("/users", response_model=UserResponse)
+async def create_user(user: User) -> dict[str, Any]:
+    """Create a new user in DynamoDB with structured logging."""
     if not table:
+        logger.error("dynamodb_table_not_configured", service=settings.service_name)
         raise HTTPException(status_code=500, detail="Table not configured")
 
     try:
+        logger.info(
+            "dynamodb_put_item_attempt",
+            table_name=settings.users_table_name,
+            user_id=user.user_id,
+        )
+
         item = {
-            'user_id': user.user_id,
-            'name': user.name,
-            'email': user.email,
-            'created_at': datetime.utcnow().isoformat()
+            "user_id": user.user_id,
+            "name": user.name,
+            "email": user.email,
+            "created_at": datetime.now(UTC).isoformat(),
         }
 
         table.put_item(Item=item)
 
-        return {"message": "User created", "user": item}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.info("dynamodb_user_created", user_id=user.user_id)
 
-@app.get("/users/{user_id}")
-async def get_user(user_id: str):
-    """Get user from DynamoDB."""
+        return item
+
+    except ClientError as e:
+        error_code = e.response.get("Error", {}).get("Code", "Unknown")
+        logger.error(
+            "dynamodb_put_item_failed",
+            error_code=error_code,
+            user_id=user.user_id,
+        )
+        raise HTTPException(status_code=500, detail=f"Failed to create user: {error_code}") from e
+
+
+@app.get("/users/{user_id}", response_model=UserResponse)
+async def get_user(user_id: str) -> dict[str, Any]:
+    """Get user from DynamoDB with structured logging."""
     if not table:
+        logger.error("dynamodb_table_not_configured", service=settings.service_name)
         raise HTTPException(status_code=500, detail="Table not configured")
 
     try:
-        response = table.get_item(Key={'user_id': user_id})
+        logger.info("dynamodb_get_item_attempt", user_id=user_id)
 
-        if 'Item' not in response:
+        response = table.get_item(Key={"user_id": user_id})
+
+        if "Item" not in response:
+            logger.warning("dynamodb_user_not_found", user_id=user_id)
             raise HTTPException(status_code=404, detail="User not found")
 
-        return response['Item']
+        logger.info("dynamodb_user_retrieved", user_id=user_id)
+
+        return response["Item"]
+
     except HTTPException:
         raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except ClientError as e:
+        error_code = e.response.get("Error", {}).get("Code", "Unknown")
+        logger.error("dynamodb_get_item_failed", error_code=error_code, user_id=user_id)
+        raise HTTPException(status_code=500, detail=f"Failed to get user: {error_code}") from e
+
 
 @app.get("/users")
-async def list_users():
-    """List all users."""
+async def list_users() -> dict[str, Any]:
+    """List all users with pagination support."""
     if not table:
+        logger.error("dynamodb_table_not_configured", service=settings.service_name)
         raise HTTPException(status_code=500, detail="Table not configured")
 
     try:
+        logger.info("dynamodb_scan_attempt", table_name=settings.users_table_name)
+
+        # Note: scan() is inefficient for large tables. Use query() or pagination instead.
         response = table.scan()
-        return {"users": response.get('Items', [])}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+
+        users = response.get("Items", [])
+        logger.info("dynamodb_scan_success", user_count=len(users))
+
+        return {"users": users, "count": len(users)}
+
+    except ClientError as e:
+        error_code = e.response.get("Error", {}).get("Code", "Unknown")
+        logger.error("dynamodb_scan_failed", error_code=error_code)
+        raise HTTPException(status_code=500, detail=f"Failed to list users: {error_code}") from e
 
 handler = Mangum(app, lifespan="off")
 ```
+
+**Key Features:**
+
+- ✅ Structured logging with structlog for JSON logs
+- ✅ OpenTelemetry instrumentation for boto3 (automatic when package installed)
+- ✅ Pydantic Settings for configuration management
+- ✅ Type hints and response models for API documentation
+- ✅ Proper error handling with ClientError and specific error codes
+- ✅ Email validation with Pydantic EmailStr
+- ✅ UTC timezone-aware timestamps
 
 ### Step 5: Set Environment Variable
 
@@ -696,6 +868,7 @@ curl $PRIMARY_URL/users
 **Use case:** File storage, static assets, backups, data lakes
 
 **Benefits:**
+
 - Unlimited storage capacity
 - 99.999999999% (11 9's) durability
 - Versioning and lifecycle policies
@@ -793,6 +966,414 @@ resource "aws_iam_role_policy" "api_s3" {
 | **SNS** | Pub/sub messaging | Built-in `aws_sns_topic` | `sns:Publish`, `sns:Subscribe` | $0.50/million publishes |
 | **Secrets Manager** | Secret storage | Built-in `aws_secretsmanager_secret` | `secretsmanager:GetSecretValue` | $0.40/secret/month |
 | **Parameter Store** | Configuration | Built-in `aws_ssm_parameter` | `ssm:GetParameter` | Free (standard) |
+
+---
+
+## GitHub Actions IAM Permissions
+
+**Critical:** When adding AWS services to your infrastructure, you need TWO layers of IAM permissions:
+
+1. **Service Execution Roles** - Allow Lambda/AppRunner to ACCESS the AWS services (documented in each service section above)
+2. **GitHub Actions Deployment Roles** - Allow Terraform to CREATE/MANAGE the AWS services (documented below)
+
+This section covers the GitHub Actions deployment permissions required for Terraform to create and manage AWS services.
+
+---
+
+### Understanding the Two Permission Layers
+
+```text
+┌─────────────────────────────────────────────────────────┐
+│  GitHub Actions (CI/CD Pipeline)                        │
+│  ├─ Uses: GitHub Actions IAM Role                       │
+│  ├─ Purpose: Deploy infrastructure with Terraform       │
+│  └─ Needs: Permissions to CREATE AWS services           │
+└─────────────────────────────────────────────────────────┘
+                        ↓ (creates)
+┌─────────────────────────────────────────────────────────┐
+│  AWS Services (SQS, DynamoDB, S3, etc.)                 │
+│  ├─ Created by: Terraform via GitHub Actions            │
+│  └─ Accessed by: Lambda/AppRunner services              │
+└─────────────────────────────────────────────────────────┘
+                        ↓ (accessed by)
+┌─────────────────────────────────────────────────────────┐
+│  Lambda/AppRunner Service                               │
+│  ├─ Uses: Service Execution Role                        │
+│  ├─ Purpose: Run application code                       │
+│  └─ Needs: Permissions to ACCESS AWS services           │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Key Difference:**
+
+- **Service execution roles** need read/write access to use the services (e.g., `sqs:SendMessage`, `dynamodb:PutItem`)
+- **GitHub Actions roles** need management permissions to create/update/delete the services (e.g., `sqs:CreateQueue`, `dynamodb:CreateTable`)
+
+---
+
+### Where to Add GitHub Actions Permissions
+
+GitHub Actions IAM policies are defined in the **bootstrap infrastructure**, not the application terraform.
+
+**Location:** `bootstrap/` directory
+
+- `bootstrap/main.tf` - Base policies attached to all environment roles
+- `bootstrap/lambda.tf` - Lambda-specific deployment policies
+- `bootstrap/apprunner.tf` - App Runner-specific deployment policies
+
+**Roles that need these permissions:**
+
+- `${project_name}-github-actions-dev` - Development environment
+- `${project_name}-github-actions-test` - Test environment (if enabled)
+- `${project_name}-github-actions-prod` - Production environment
+
+---
+
+### Adding SQS Management Permissions
+
+To allow GitHub Actions to create and manage SQS queues, add this policy to `bootstrap/main.tf`:
+
+```hcl
+# =============================================================================
+# SQS Management Policy for GitHub Actions
+# =============================================================================
+
+resource "aws_iam_policy" "sqs_management" {
+  count = var.enable_lambda || var.enable_apprunner ? 1 : 0
+
+  name        = "${var.project_name}-sqs-management"
+  description = "Allows GitHub Actions to manage SQS queues for ${var.project_name}"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      # SQS Queue Management
+      {
+        Effect = "Allow"
+        Action = [
+          "sqs:CreateQueue",
+          "sqs:DeleteQueue",
+          "sqs:GetQueueAttributes",
+          "sqs:SetQueueAttributes",
+          "sqs:ListQueues",
+          "sqs:TagQueue",
+          "sqs:UntagQueue",
+          "sqs:ListQueueTags",
+          "sqs:PurgeQueue"
+        ]
+        Resource = "arn:aws:sqs:${var.aws_region}:${local.account_id}:${var.project_name}-*"
+      },
+      # List all queues (required for terraform state reconciliation)
+      {
+        Effect = "Allow"
+        Action = [
+          "sqs:ListQueues"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+
+  tags = local.common_tags
+}
+
+# Attach to dev role
+resource "aws_iam_role_policy_attachment" "dev_sqs_management" {
+  count = var.enable_lambda || var.enable_apprunner ? 1 : 0
+
+  role       = aws_iam_role.github_actions_dev.name
+  policy_arn = aws_iam_policy.sqs_management[0].arn
+}
+
+# Attach to test role
+resource "aws_iam_role_policy_attachment" "test_sqs_management" {
+  count = (var.enable_lambda || var.enable_apprunner) && var.enable_test_environment ? 1 : 0
+
+  role       = aws_iam_role.github_actions_test[0].name
+  policy_arn = aws_iam_policy.sqs_management[0].arn
+}
+
+# Attach to prod role
+resource "aws_iam_role_policy_attachment" "prod_sqs_management" {
+  count = var.enable_lambda || var.enable_apprunner ? 1 : 0
+
+  role       = aws_iam_role.github_actions_prod.name
+  policy_arn = aws_iam_policy.sqs_management[0].arn
+}
+```
+
+---
+
+### Adding DynamoDB Management Permissions
+
+To allow GitHub Actions to create and manage DynamoDB tables:
+
+```hcl
+# =============================================================================
+# DynamoDB Management Policy for GitHub Actions
+# =============================================================================
+
+resource "aws_iam_policy" "dynamodb_management" {
+  count = var.enable_lambda || var.enable_apprunner ? 1 : 0
+
+  name        = "${var.project_name}-dynamodb-management"
+  description = "Allows GitHub Actions to manage DynamoDB tables for ${var.project_name}"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      # DynamoDB Table Management
+      {
+        Effect = "Allow"
+        Action = [
+          "dynamodb:CreateTable",
+          "dynamodb:DeleteTable",
+          "dynamodb:DescribeTable",
+          "dynamodb:UpdateTable",
+          "dynamodb:ListTables",
+          "dynamodb:TagResource",
+          "dynamodb:UntagResource",
+          "dynamodb:ListTagsOfResource",
+          "dynamodb:DescribeTimeToLive",
+          "dynamodb:UpdateTimeToLive",
+          "dynamodb:DescribeContinuousBackups",
+          "dynamodb:UpdateContinuousBackups"
+        ]
+        Resource = "arn:aws:dynamodb:${var.aws_region}:${local.account_id}:table/${var.project_name}-*"
+      },
+      # Global Secondary Index Management
+      {
+        Effect = "Allow"
+        Action = [
+          "dynamodb:DescribeTable",
+          "dynamodb:UpdateTable"
+        ]
+        Resource = "arn:aws:dynamodb:${var.aws_region}:${local.account_id}:table/${var.project_name}-*/index/*"
+      },
+      # List all tables (required for terraform state reconciliation)
+      {
+        Effect = "Allow"
+        Action = [
+          "dynamodb:ListTables"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+
+  tags = local.common_tags
+}
+
+# Attach to dev role
+resource "aws_iam_role_policy_attachment" "dev_dynamodb_management" {
+  count = var.enable_lambda || var.enable_apprunner ? 1 : 0
+
+  role       = aws_iam_role.github_actions_dev.name
+  policy_arn = aws_iam_policy.dynamodb_management[0].arn
+}
+
+# Attach to test role
+resource "aws_iam_role_policy_attachment" "test_dynamodb_management" {
+  count = (var.enable_lambda || var.enable_apprunner) && var.enable_test_environment ? 1 : 0
+
+  role       = aws_iam_role.github_actions_test[0].name
+  policy_arn = aws_iam_policy.dynamodb_management[0].arn
+}
+
+# Attach to prod role
+resource "aws_iam_role_policy_attachment" "prod_dynamodb_management" {
+  count = var.enable_lambda || var.enable_apprunner ? 1 : 0
+
+  role       = aws_iam_role.github_actions_prod.name
+  policy_arn = aws_iam_policy.dynamodb_management[0].arn
+}
+```
+
+---
+
+### Adding S3 Management Permissions
+
+To allow GitHub Actions to create and manage S3 buckets:
+
+```hcl
+# =============================================================================
+# S3 Management Policy for GitHub Actions
+# =============================================================================
+
+resource "aws_iam_policy" "s3_management" {
+  count = var.enable_lambda || var.enable_apprunner ? 1 : 0
+
+  name        = "${var.project_name}-s3-management"
+  description = "Allows GitHub Actions to manage S3 buckets for ${var.project_name}"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      # S3 Bucket Management
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:CreateBucket",
+          "s3:DeleteBucket",
+          "s3:ListBucket",
+          "s3:GetBucketLocation",
+          "s3:GetBucketVersioning",
+          "s3:PutBucketVersioning",
+          "s3:GetBucketPolicy",
+          "s3:PutBucketPolicy",
+          "s3:DeleteBucketPolicy",
+          "s3:GetBucketPublicAccessBlock",
+          "s3:PutBucketPublicAccessBlock",
+          "s3:GetBucketTagging",
+          "s3:PutBucketTagging",
+          "s3:GetEncryptionConfiguration",
+          "s3:PutEncryptionConfiguration",
+          "s3:GetBucketCORS",
+          "s3:PutBucketCORS",
+          "s3:DeleteBucketCORS",
+          "s3:GetLifecycleConfiguration",
+          "s3:PutLifecycleConfiguration",
+          "s3:DeleteLifecycleConfiguration",
+          "s3:GetBucketLogging",
+          "s3:PutBucketLogging"
+        ]
+        Resource = "arn:aws:s3:::${var.project_name}-*"
+      },
+      # List all buckets (required for terraform state reconciliation)
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:ListAllMyBuckets",
+          "s3:GetBucketLocation"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+
+  tags = local.common_tags
+}
+
+# Attach to dev role
+resource "aws_iam_role_policy_attachment" "dev_s3_management" {
+  count = var.enable_lambda || var.enable_apprunner ? 1 : 0
+
+  role       = aws_iam_role.github_actions_dev.name
+  policy_arn = aws_iam_policy.s3_management[0].arn
+}
+
+# Attach to test role
+resource "aws_iam_role_policy_attachment" "test_s3_management" {
+  count = (var.enable_lambda || var.enable_apprunner) && var.enable_test_environment ? 1 : 0
+
+  role       = aws_iam_role.github_actions_test[0].name
+  policy_arn = aws_iam_policy.s3_management[0].arn
+}
+
+# Attach to prod role
+resource "aws_iam_role_policy_attachment" "prod_s3_management" {
+  count = var.enable_lambda || var.enable_apprunner ? 1 : 0
+
+  role       = aws_iam_role.github_actions_prod.name
+  policy_arn = aws_iam_policy.s3_management[0].arn
+}
+```
+
+---
+
+### Quick Reference: GitHub Actions Permissions by Service
+
+| AWS Service | Key Actions Required | Resource Pattern |
+|-------------|---------------------|------------------|
+| **SQS** | `sqs:CreateQueue`, `sqs:DeleteQueue`, `sqs:SetQueueAttributes` | `arn:aws:sqs:*:*:${project_name}-*` |
+| **DynamoDB** | `dynamodb:CreateTable`, `dynamodb:DeleteTable`, `dynamodb:UpdateTable` | `arn:aws:dynamodb:*:*:table/${project_name}-*` |
+| **S3** | `s3:CreateBucket`, `s3:DeleteBucket`, `s3:PutBucket*` | `arn:aws:s3:::${project_name}-*` |
+| **SNS** | `sns:CreateTopic`, `sns:DeleteTopic`, `sns:SetTopicAttributes` | `arn:aws:sns:*:*:${project_name}-*` |
+| **Secrets Manager** | `secretsmanager:CreateSecret`, `secretsmanager:DeleteSecret` | `arn:aws:secretsmanager:*:*:secret:${project_name}-*` |
+| **EventBridge** | `events:PutRule`, `events:DeleteRule`, `events:PutTargets` | `arn:aws:events:*:*:rule/${project_name}-*` |
+| **RDS** | `rds:CreateDBInstance`, `rds:DeleteDBInstance`, `rds:ModifyDBInstance` | `arn:aws:rds:*:*:db:${project_name}-*` |
+| **ElastiCache** | `elasticache:CreateCacheCluster`, `elasticache:DeleteCacheCluster` | `arn:aws:elasticache:*:*:cluster:${project_name}-*` |
+
+---
+
+### Deployment Workflow
+
+1. **Add IAM policies to bootstrap**
+
+   ```bash
+   cd bootstrap
+   # Edit main.tf to add the AWS service management policies
+   # Add policy resources and role attachments
+   ```
+
+2. **Apply bootstrap changes**
+
+   ```bash
+   make bootstrap-apply
+   # This updates the GitHub Actions IAM roles with new permissions
+   ```
+
+3. **Add AWS service to application terraform**
+
+   ```bash
+   # Create terraform/modules/sqs-queue/main.tf (or DynamoDB, S3, etc.)
+   # Reference the module in terraform/main.tf
+   ```
+
+4. **Deploy via GitHub Actions**
+
+   ```bash
+   git add .
+   git commit -m "Add SQS queue for async processing"
+   git push
+   # GitHub Actions will now have permissions to create the SQS queue
+   ```
+
+---
+
+### Common Errors and Solutions
+
+#### Error: "User is not authorized to perform: sqs:CreateQueue"
+
+**Cause:** GitHub Actions role doesn't have SQS management permissions
+
+**Solution:** Add the SQS management policy to `bootstrap/main.tf` and run `make bootstrap-apply`
+
+#### Error: "User is not authorized to perform: dynamodb:CreateTable"
+
+**Cause:** GitHub Actions role doesn't have DynamoDB management permissions
+
+**Solution:** Add the DynamoDB management policy to `bootstrap/main.tf` and run `make bootstrap-apply`
+
+#### Error: "Access Denied" when creating S3 bucket
+
+**Cause:** GitHub Actions role doesn't have S3 management permissions
+
+**Solution:** Add the S3 management policy to `bootstrap/main.tf` and run `make bootstrap-apply`
+
+---
+
+### Best Practices for GitHub Actions IAM
+
+1. **Use Resource Constraints**
+   - Limit permissions to resources with your project name prefix
+   - Example: `arn:aws:sqs:*:*:${var.project_name}-*`
+
+2. **Separate Bootstrap from Application**
+   - AWS service management policies go in `bootstrap/`
+   - Service execution policies go in application `terraform/`
+
+3. **Apply Least Privilege**
+   - Only add permissions for AWS services you actually use
+   - Remove unused policies to reduce attack surface
+
+4. **Test in Dev First**
+   - Always test new AWS service integrations in dev environment
+   - Verify GitHub Actions can create/update/delete resources
+
+5. **Document Custom Permissions**
+   - If you add custom AWS services, document the required permissions
+   - Include both GitHub Actions and service execution permissions
 
 ---
 
@@ -986,8 +1567,9 @@ tags = {
 
 ---
 
-**Last Updated:** 2025-11-23
+**Last Updated:** 2025-11-27
 **Related Documentation:**
+
 - [Adding Services Guide](ADDING-SERVICES.md)
 - [Multi-Service Architecture](MULTI-SERVICE-ARCHITECTURE.md)
 - [Terraform Bootstrap](TERRAFORM-BOOTSTRAP.md)

@@ -27,7 +27,7 @@ All deployment options provide built-in monitoring via AWS CloudWatch, but each 
 |---------|--------|------------|-----|
 | **Logs** | CloudWatch Logs | CloudWatch Logs | CloudWatch Logs / Fluentd |
 | **Metrics** | CloudWatch Metrics | CloudWatch Metrics | CloudWatch Container Insights |
-| **Traces** | X-Ray | X-Ray | X-Ray / Jaeger |
+| **Traces** | OpenTelemetry/ADOT | OpenTelemetry/ADOT | OpenTelemetry / Jaeger |
 | **Dashboards** | CloudWatch | CloudWatch | CloudWatch / Grafana |
 | **Cost** | Low | Low | Medium |
 | **Setup** | Automatic | Automatic | Manual |
@@ -83,43 +83,62 @@ aws cloudwatch get-metric-statistics \
   --statistics Sum
 ```
 
-### X-Ray Tracing
+### OpenTelemetry Distributed Tracing with ADOT
 
-**Enable X-Ray** in Lambda function:
+This project uses **AWS Distro for OpenTelemetry (ADOT)** for distributed tracing instead of the legacy X-Ray SDK.
+
+**For Lambda Functions:**
+
+Add the ADOT Lambda Layer to your function:
 
 ```hcl
 # terraform/resources/lambda-functions.tf
 resource "aws_lambda_function" "api" {
   # ... other config
 
-  tracing_config {
-    mode = "Active"
+  layers = [
+    "arn:aws:lambda:${var.aws_region}:901920570463:layer:aws-otel-python-amd64-ver-1-20-0:3"
+  ]
+
+  environment {
+    variables = {
+      AWS_LAMBDA_EXEC_WRAPPER = "/opt/otel-instrument"
+      OPENTELEMETRY_COLLECTOR_CONFIG_FILE = "/var/task/collector.yaml"
+    }
   }
 }
 ```
 
-**Add X-Ray SDK** to application:
+**For App Runner / Container-based services:**
+
+The application code already includes OpenTelemetry instrumentation:
 
 ```python
 # backend/api/main.py
-from aws_xray_sdk.core import xray_recorder
-from aws_xray_sdk.ext.fastapi.middleware import XRayMiddleware
+from opentelemetry import trace
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from opentelemetry.sdk.trace import TracerProvider
 
-app.add_middleware(XRayMiddleware)
-
-@xray_recorder.capture('greet_function')
-async def greet(name: str):
-    # ... function code
+# Traces are sent to ADOT collector endpoint
+# For App Runner, deploy ADOT collector as sidecar or use compatible backend
 ```
 
-**Update dependencies:**
+**Dependencies:**
 ```toml
 # backend/api/pyproject.toml
 dependencies = [
-    # ... existing
-    "aws-xray-sdk>=2.12.0,<3.0.0",
+    "opentelemetry-api>=1.27.0,<2.0.0",
+    "opentelemetry-sdk>=1.27.0,<2.0.0",
+    "opentelemetry-instrumentation-fastapi>=0.48b0,<1.0.0",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.27.0,<2.0.0",
 ]
 ```
+
+**View traces:**
+
+- Traces are exported to compatible backends (AWS supports ADOT with multiple exporters)
+- Access via CloudWatch ServiceLens or other OpenTelemetry-compatible backends
 
 ### Custom Metrics
 
@@ -355,21 +374,15 @@ data:
     </match>
 ```
 
-### Distributed Tracing with X-Ray
+### Distributed Tracing
 
-**Install X-Ray daemon:**
+**Install distributed tracing collector:**
 
-```bash
-kubectl apply -f https://github.com/aws/aws-xray-daemon/raw/master/kubernetes/xray-daemonset.yaml
-```
+For OpenTelemetry-based tracing, deploy a collector as a DaemonSet or sidecar. The application uses OpenTelemetry instrumentation that's already configured in the codebase.
 
-**Configure application:**
+**Application configuration:**
 
-```python
-# Same as Lambda X-Ray configuration above
-from aws_xray_sdk.ext.fastapi.middleware import XRayMiddleware
-app.add_middleware(XRayMiddleware)
-```
+The FastAPI applications already include OpenTelemetry instrumentation. Traces are automatically collected and exported to configured backends.
 
 ---
 
@@ -844,9 +857,9 @@ cp backend/api/main.py backend/newservice/main.py
 # The logging configuration is already set up!
 ```
 
-### Integration with X-Ray
+### Integration with Distributed Tracing
 
-Structlog works seamlessly with AWS X-Ray tracing. Log entries include trace IDs automatically when X-Ray is enabled, allowing you to correlate logs with traces.
+Structlog works seamlessly with distributed tracing systems. Log entries can include trace IDs automatically when tracing is enabled, allowing you to correlate logs with traces.
 
 ### Performance
 
@@ -860,7 +873,7 @@ Structlog is highly optimized and adds minimal overhead:
 
 ### Lambda
 
-- ✅ Enable X-Ray for distributed tracing
+- ✅ Enable distributed tracing (OpenTelemetry/ADOT)
 - ✅ Set appropriate log retention (7-30 days)
 - ✅ Use structured logging (structlog) - already configured!
 - ✅ Monitor cold starts
@@ -909,5 +922,5 @@ Structlog is highly optimized and adds minimal overhead:
 - [Container Insights](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/ContainerInsights.html)
 - [Prometheus Documentation](https://prometheus.io/docs/)
 - [Grafana Documentation](https://grafana.com/docs/)
-- [AWS X-Ray](https://docs.aws.amazon.com/xray/)
+- [AWS Distro for OpenTelemetry](https://aws-otel.github.io/)
 - [FastAPI Monitoring](https://fastapi.tiangolo.com/advanced/middleware/)

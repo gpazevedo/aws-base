@@ -9,7 +9,7 @@ This module creates a shared API Gateway REST API with common configuration incl
 - Rate limiting and throttling
 - **API Key authentication with usage plans**
 - CloudWatch logging and access logs
-- X-Ray tracing support (optional)
+- Distributed tracing support (optional)
 - API caching (optional)
 - Configurable log retention
 
@@ -30,9 +30,6 @@ module "api_gateway_shared" {
   # Logging
   log_retention_days = 7
   api_logging_level  = "INFO"
-
-  # Monitoring
-  enable_xray_tracing = true
 
   tags = {
     Team = "platform"
@@ -87,7 +84,6 @@ output "api_key_value" {
 | throttle_rate_limit | Throttle rate limit (req/sec) | number | 10000 |
 | log_retention_days | Log retention days | number | 7 |
 | api_logging_level | Logging level (OFF/ERROR/INFO) | string | INFO |
-| enable_xray_tracing | Enable X-Ray tracing | bool | false |
 | enable_caching | Enable API caching | bool | false |
 | enable_api_key | Enable API Key authentication | bool | false |
 | api_key_name | API Key name (auto-generated if empty) | string | "" |

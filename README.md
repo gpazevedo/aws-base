@@ -73,10 +73,15 @@ git clone git@github.com:gpazevedo/aws-base-python.git <YOUR-PROJECT>
 cd <YOUR-PROJECT>
 git remote remove origin
 
-# Test Python setup (install dependencies with test extras)
+# Install dependencies for all services (includes test dependencies for type checking)
 cd backend/api && uv sync --extra test && cd ../..
+cd backend/runner && uv sync --extra test && cd ../..
+
+# Verify setup
 make test
 ```
+
+> **⚠️ Important:** Always run `uv sync --extra test` to install test dependencies (pytest, pytest-cov, etc.). This is required for type checking with pyright and running tests. Without test dependencies, you'll see import errors like "Import 'pytest' could not be resolved".
 
 ### 2. Configure
 
@@ -477,7 +482,7 @@ ecr_repositories = ["web-frontend"]  # Additional ECR repo
 
 - [Pre-commit Hooks](docs/PRE-COMMIT.md) - Code quality
 - [Release Please](docs/RELEASE-PLEASE.md) - Automated releases
-- [Monitoring](docs/MONITORING.md) - CloudWatch & X-Ray
+- [Monitoring](docs/MONITORING.md) - CloudWatch & Distributed Tracing
 
 ### Reference
 - [Scripts Documentation](docs/SCRIPTS.md) - All helper scripts

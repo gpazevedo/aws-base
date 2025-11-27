@@ -41,13 +41,10 @@ resource "aws_iam_role_policy_attachment" "lambda_basic_execution" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
-# Attach AWS X-Ray write policy for tracing
-resource "aws_iam_role_policy_attachment" "lambda_xray" {
-  count = var.enable_lambda ? 1 : 0
-
-  role       = aws_iam_role.lambda_execution[0].name
-  policy_arn = "arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess"
-}
+# Note: ADOT Lambda Layer permissions
+# When using ADOT Lambda Layer, the layer handles OpenTelemetry collection
+# No additional IAM permissions are required for basic OTLP export
+# For custom OTLP endpoints, ensure network connectivity and appropriate security group rules
 
 # =============================================================================
 # Lambda Deployment Policy for GitHub Actions

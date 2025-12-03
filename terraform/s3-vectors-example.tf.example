@@ -1,0 +1,299 @@
+# =============================================================================
+# S3 Vector Storage - Example Application Terraform
+# =============================================================================
+# This is an EXAMPLE file showing how to create S3 vector storage buckets
+# and attach service access permissions to Lambda/AppRunner roles.
+#
+# To use this file:
+# 1. Remove the .example extension: mv s3-vectors-example.tf.example s3-vectors.tf
+# 2. Customize bucket names and settings for your use case
+# 3. Apply with: terraform apply -var-file=environments/{env}.tfvars
+#
+# Prerequisites:
+# - Bootstrap infrastructure must be deployed first (bootstrap/s3vector.tf)
+# - GitHub Actions roles have s3_vector_management policy attached
+# - Service execution roles exist (Lambda or AppRunner)
+# =============================================================================
+
+# =============================================================================
+# Data Source - Bootstrap Outputs
+# =============================================================================
+# Reference the S3 vector service access policy created in bootstrap
+
+data "terraform_remote_state" "bootstrap" {
+  backend = "s3"
+
+  config = {
+    bucket = var.terraform_state_bucket
+    key    = "bootstrap/terraform.tfstate"
+    region = var.aws_region
+  }
+}
+
+# =============================================================================
+# S3 Vector Storage Buckets
+# =============================================================================
+# Create S3 buckets for storing vector embeddings, following security best practices
+
+# Example 1: User Embeddings Vector Storage
+resource "aws_s3_bucket" "user_embeddings_vector" {
+  bucket = "${var.project_name}-${var.environment}-vector-user-embeddings"
+
+  # Prevent accidental deletion in production
+  lifecycle {
+    prevent_destroy = false # Set to true for production
+  }
+
+  tags = {
+    Name        = "${var.project_name}-${var.environment}-vector-user-embeddings"
+    Environment = var.environment
+    Purpose     = "vector-storage"
+    DataType    = "user-embeddings"
+  }
+}
+
+# Enable versioning for user embeddings (recommended for production)
+resource "aws_s3_bucket_versioning" "user_embeddings_vector" {
+  bucket = aws_s3_bucket.user_embeddings_vector.id
+
+  versioning_configuration {
+    status = "Enabled" # Protects against accidental overwrites/deletions
+  }
+}
+
+# Enable server-side encryption (AES256)
+resource "aws_s3_bucket_server_side_encryption_configuration" "user_embeddings_vector" {
+  bucket = aws_s3_bucket.user_embeddings_vector.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256" # Use "aws:kms" with kms_master_key_id for production
+    }
+  }
+}
+
+# Block all public access
+resource "aws_s3_bucket_public_access_block" "user_embeddings_vector" {
+  bucket = aws_s3_bucket.user_embeddings_vector.id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+# Lifecycle policy for cost optimization
+resource "aws_s3_bucket_lifecycle_configuration" "user_embeddings_vector" {
+  bucket = aws_s3_bucket.user_embeddings_vector.id
+
+  rule {
+    id     = "transition-old-versions"
+    status = "Enabled"
+
+    # Transition non-current versions to cheaper storage after 90 days
+    noncurrent_version_transition {
+      noncurrent_days = 90
+      storage_class   = "GLACIER_IR" # Instant Retrieval Glacier
+    }
+
+    # Delete non-current versions after 180 days
+    noncurrent_version_expiration {
+      noncurrent_days = 180
+    }
+  }
+
+  rule {
+    id     = "cleanup-incomplete-uploads"
+    status = "Enabled"
+
+    # Abort incomplete multipart uploads after 7 days
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 7
+    }
+  }
+}
+
+# Optional: CORS configuration (only if browser-based access needed)
+# resource "aws_s3_bucket_cors_configuration" "user_embeddings_vector" {
+#   bucket = aws_s3_bucket.user_embeddings_vector.id
+#
+#   cors_rule {
+#     allowed_headers = ["*"]
+#     allowed_methods = ["GET", "PUT", "POST"]
+#     allowed_origins = ["https://app.example.com"] # Restrict to your domains
+#     expose_headers  = ["ETag"]
+#     max_age_seconds = 3000
+#   }
+# }
+
+# Example 2: Document Embeddings Vector Storage
+resource "aws_s3_bucket" "document_embeddings_vector" {
+  bucket = "${var.project_name}-${var.environment}-vector-doc-embeddings"
+
+  tags = {
+    Name        = "${var.project_name}-${var.environment}-vector-doc-embeddings"
+    Environment = var.environment
+    Purpose     = "vector-storage"
+    DataType    = "document-embeddings"
+  }
+}
+
+resource "aws_s3_bucket_versioning" "document_embeddings_vector" {
+  bucket = aws_s3_bucket.document_embeddings_vector.id
+
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "document_embeddings_vector" {
+  bucket = aws_s3_bucket.document_embeddings_vector.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
+resource "aws_s3_bucket_public_access_block" "document_embeddings_vector" {
+  bucket = aws_s3_bucket.document_embeddings_vector.id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+# =============================================================================
+# Attach S3 Vector Access Policy to Service Roles
+# =============================================================================
+# Attach the bootstrap-created service access policy to your Lambda/AppRunner roles
+
+# Option 1: For Lambda API Service
+resource "aws_iam_role_policy_attachment" "lambda_api_s3_vectors" {
+  count = var.enable_lambda ? 1 : 0
+
+  role       = aws_iam_role.lambda_api[0].name
+  policy_arn = data.terraform_remote_state.bootstrap.outputs.s3_vector_service_policy_arn
+}
+
+# Option 2: For AppRunner Service
+resource "aws_iam_role_policy_attachment" "apprunner_runner_s3_vectors" {
+  count = var.enable_apprunner ? 1 : 0
+
+  role       = aws_iam_role.apprunner_instance_runner[0].name
+  policy_arn = data.terraform_remote_state.bootstrap.outputs.s3_vector_service_policy_arn
+}
+
+# =============================================================================
+# Environment Variables for Services
+# =============================================================================
+# Pass bucket names to your services via environment variables
+
+# Lambda API - Add to existing lambda_function resource
+# resource "aws_lambda_function" "api" {
+#   # ... existing configuration ...
+#
+#   environment {
+#     variables = merge(
+#       var.lambda_environment_variables,
+#       {
+#         # S3 Vector Storage Buckets
+#         USER_EMBEDDINGS_BUCKET_NAME = aws_s3_bucket.user_embeddings_vector.id
+#         DOC_EMBEDDINGS_BUCKET_NAME  = aws_s3_bucket.document_embeddings_vector.id
+#         AWS_REGION                  = var.aws_region
+#       }
+#     )
+#   }
+# }
+
+# AppRunner Service - Add to existing apprunner_service resource
+# resource "aws_apprunner_service" "runner" {
+#   # ... existing configuration ...
+#
+#   source_configuration {
+#     image_repository {
+#       # ... existing configuration ...
+#
+#       image_configuration {
+#         runtime_environment_variables = merge(
+#           var.apprunner_environment_variables,
+#           {
+#             # S3 Vector Storage Buckets
+#             USER_EMBEDDINGS_BUCKET_NAME = aws_s3_bucket.user_embeddings_vector.id
+#             DOC_EMBEDDINGS_BUCKET_NAME  = aws_s3_bucket.document_embeddings_vector.id
+#             AWS_REGION                  = var.aws_region
+#           }
+#         )
+#       }
+#     }
+#   }
+# }
+
+# =============================================================================
+# Outputs
+# =============================================================================
+
+output "user_embeddings_bucket_name" {
+  description = "S3 bucket name for user embeddings vector storage"
+  value       = aws_s3_bucket.user_embeddings_vector.id
+}
+
+output "user_embeddings_bucket_arn" {
+  description = "ARN of the user embeddings vector storage bucket"
+  value       = aws_s3_bucket.user_embeddings_vector.arn
+}
+
+output "document_embeddings_bucket_name" {
+  description = "S3 bucket name for document embeddings vector storage"
+  value       = aws_s3_bucket.document_embeddings_vector.id
+}
+
+output "document_embeddings_bucket_arn" {
+  description = "ARN of the document embeddings vector storage bucket"
+  value       = aws_s3_bucket.document_embeddings_vector.arn
+}
+
+# =============================================================================
+# Usage Notes
+# =============================================================================
+#
+# 1. Bucket Naming Convention:
+#    Pattern: ${project_name}-${environment}-vector-${purpose}
+#    Examples:
+#      - fin-advisor3-dev-vector-user-embeddings
+#      - fin-advisor3-prod-vector-doc-embeddings
+#      - fin-advisor3-dev-vector-cache
+#
+# 2. Environment Variables:
+#    Your application code reads bucket names from environment variables:
+#      USER_EMBEDDINGS_BUCKET_NAME - Where user embeddings are stored
+#      DOC_EMBEDDINGS_BUCKET_NAME  - Where document embeddings are stored
+#      AWS_REGION                  - AWS region for S3 client
+#
+# 3. IAM Permissions:
+#    Services automatically get these permissions via the bootstrap policy:
+#      - s3:GetObject, s3:PutObject (read/write objects)
+#      - s3:DeleteObject (remove objects)
+#      - s3:ListBucket (list objects in bucket)
+#      - Multipart upload operations (for large files)
+#
+# 4. Security Best Practices:
+#    ✓ Encryption enabled (AES256 or KMS)
+#    ✓ Versioning enabled (protect against deletions)
+#    ✓ Public access blocked
+#    ✓ Lifecycle policies (cost optimization)
+#    ✓ Resource constraints (only vector buckets accessible)
+#
+# 5. Cost Optimization:
+#    - Non-current versions transition to Glacier after 90 days
+#    - Non-current versions deleted after 180 days
+#    - Incomplete uploads cleaned up after 7 days
+#    - Consider S3 Intelligent-Tiering for variable access patterns
+#
+# 6. Application Code Example:
+#    See bootstrap/s3vector.tf for complete Python code examples
+#    showing how to store and retrieve vector embeddings
+#
+# =============================================================================

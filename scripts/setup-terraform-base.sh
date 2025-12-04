@@ -380,10 +380,9 @@ fi
 for ENV in "${ENVIRONMENTS[@]}"; do
   TFVARS_FILE="$TERRAFORM_DIR/environments/${ENV}.tfvars"
 
-  if [ ! -f "$TFVARS_FILE" ]; then
-    echo "📝 Creating terraform/environments/${ENV}.tfvars..."
+  echo "📝 Creating terraform/environments/${ENV}.tfvars..."
 
-    cat > "$TFVARS_FILE" <<EOF
+  cat > "$TFVARS_FILE" <<EOF
 # =============================================================================
 # Application Infrastructure - ${ENV} Environment
 # =============================================================================
@@ -439,9 +438,6 @@ team        = "platform"
 # Additional tags (optional)
 additional_tags = {}
 EOF
-  else
-    echo "ℹ️  Skipping ${ENV}.tfvars (already exists)"
-  fi
 done
 
 if [ ! -f "terraform/api-gateway.tf" ]; then

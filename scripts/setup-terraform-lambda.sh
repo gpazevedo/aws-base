@@ -239,6 +239,18 @@ cat > "$LAMBDA_TF_FILE" <<'TEMPLATE_EOF'
 # This file defines the Lambda function for the SERVICE_NAME_PLACEHOLDER service
 # =============================================================================
 
+# Service-specific configuration
+# Edit these values to customize this Lambda function
+locals {
+  SERVICE_NAME_PLACEHOLDER_config = {
+    memory_size = 512
+    timeout     = 30
+    # Add service-specific environment variables here
+    # bedrock_model_id   = "amazon.titan-embed-text-v2:0"
+    # vector_bucket_name = "${var.project_name}-${var.environment}-vectors"
+  }
+}
+
 # Lambda execution role (from bootstrap)
 data "aws_iam_role" "lambda_execution_SERVICE_NAME_PLACEHOLDER" {
   name = "${var.project_name}-lambda-execution-role"
@@ -254,21 +266,20 @@ resource "aws_lambda_function" "SERVICE_NAME_PLACEHOLDER" {
   # Using hierarchical tag format: SERVICE_NAME_PLACEHOLDER-{environment}-latest
   image_uri    = "${data.aws_ecr_repository.app.repository_url}:SERVICE_NAME_PLACEHOLDER-${var.environment}-latest"
 
-  # Resource configuration - uses per-service config if available, otherwise defaults
-  memory_size = try(var.lambda_service_configs["SERVICE_NAME_PLACEHOLDER"].memory_size, var.lambda_memory_size)
-  timeout     = try(var.lambda_service_configs["SERVICE_NAME_PLACEHOLDER"].timeout, var.lambda_timeout)
+  # Resource configuration - uses local config
+  memory_size   = local.SERVICE_NAME_PLACEHOLDER_config.memory_size
+  timeout       = local.SERVICE_NAME_PLACEHOLDER_config.timeout
   architectures = [var.lambda_architecture]
-
-  # Optional: Reserved concurrent executions (if configured per-service)
-  reserved_concurrent_executions = try(var.lambda_service_configs["SERVICE_NAME_PLACEHOLDER"].reserved_concurrent_executions, null)
 
   # Environment variables
   environment {
     variables = {
-      ENVIRONMENT   = var.environment
-      PROJECT_NAME  = var.project_name
-      SERVICE_NAME  = "SERVICE_NAME_PLACEHOLDER"
-      LOG_LEVEL     = var.environment == "prod" ? "INFO" : "DEBUG"
+      ENVIRONMENT  = var.environment
+      PROJECT_NAME = var.project_name
+      SERVICE_NAME = "SERVICE_NAME_PLACEHOLDER"
+      LOG_LEVEL    = var.environment == "prod" ? "INFO" : "DEBUG"
+      # Add custom environment variables from local config
+      # Uncomment and add as needed based on local config
     }
   }
 

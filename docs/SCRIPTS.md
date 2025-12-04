@@ -129,7 +129,7 @@ make setup-terraform-backend
 
 ### 4. `setup-terraform-lambda.sh`
 
-**Purpose**: Generates Terraform configuration for individual Lambda services.
+**Purpose**: Generates Terraform configuration for individual Lambda services with self-contained configuration.
 
 **Location**: `scripts/setup-terraform-lambda.sh`
 
@@ -154,16 +154,51 @@ make setup-terraform-backend
 **What it does**:
 1. Validates that `backend/<service-name>/` directory exists
 2. Creates `terraform/lambda-variables.tf` (if first Lambda service)
-3. Generates `terraform/lambda-<service>.tf` with Lambda function definition
+3. Generates `terraform/lambda-<service>.tf` with:
+   - **`locals` block** for service-specific configuration (memory, timeout, custom env vars)
+   - Lambda function definition
+   - CloudWatch Logs configuration
+   - IAM role data sources
 4. Appends API Gateway integration to `terraform/api-gateway.tf` (if it exists)
 5. Sets up path-based routing for the service
+
+**New Configuration Pattern**:
+
+Each generated Lambda file now includes a `locals` block for self-contained configuration:
+
+```hcl
+# Service-specific configuration
+# Edit these values to customize this Lambda function
+locals {
+  myservice_config = {
+    memory_size = 512
+    timeout     = 30
+    # Add service-specific environment variables here
+    # bedrock_model_id   = "amazon.titan-embed-text-v2:0"
+    # vector_bucket_name = "${var.project_name}-${var.environment}-vectors"
+  }
+}
+
+resource "aws_lambda_function" "myservice" {
+  # Resource configuration - uses local config
+  memory_size = local.myservice_config.memory_size
+  timeout     = local.myservice_config.timeout
+  # ...
+}
+```
+
+**Benefits**:
+- ✅ **Self-contained**: Each service file has its own configuration
+- ✅ **Easy to customize**: Edit values directly in the service's Terraform file
+- ✅ **No central config**: No more `lambda_service_configs` in `dev.tfvars`
+- ✅ **Clear separation**: Service config lives with service definition
 
 **Generated infrastructure per service**:
 - Lambda function using container images from ECR
 - CloudWatch Logs with JSON formatting and retention policies
-- IAM execution role
+- IAM execution role references
 - API Gateway integration with path routing (`/<service>/*`)
-- Environment-specific memory/timeout configurations
+- Service-specific configuration via `locals` block
 - Lifecycle rules for CI/CD compatibility
 
 **Example workflow for adding a new Lambda service**:
@@ -218,9 +253,63 @@ make app-apply-dev
 **What it does**:
 1. Validates that `backend/<service-name>/` directory exists
 2. Creates `terraform/apprunner-variables.tf` (if first AppRunner service)
-3. Generates `terraform/apprunner-<service>.tf` with AppRunner service definition
+3. Generates `terraform/apprunner-<service>.tf` with:
+   - **`locals` block** for service-specific configuration (CPU, memory, scaling, env vars)
+   - AppRunner service definition
+   - Auto-scaling configuration
+   - Health check configuration
 4. Optionally appends API Gateway integration to `terraform/api-gateway.tf`
-5. Sets up auto-scaling and health check configuration
+5. Sets up path-based routing for the service
+
+**New Configuration Pattern**:
+
+Each generated App Runner file now includes a `locals` block for self-contained configuration:
+
+```hcl
+# Service-specific configuration
+# Edit these values to customize this App Runner service
+locals {
+  myservice_config = {
+    cpu               = "1024"
+    memory            = "2048"
+    port              = 8080
+    min_instances     = 1
+    max_instances     = 5
+    max_concurrency   = 100
+    health_check_path = "/health"
+    # Add service-specific environment variables here
+    environment_variables = {
+      # DATABASE_URL = "postgresql://..."
+      # REDIS_URL    = "redis://..."
+    }
+  }
+}
+
+resource "aws_apprunner_service" "myservice" {
+  # Instance configuration - uses local config
+  instance_configuration {
+    cpu    = local.myservice_config.cpu
+    memory = local.myservice_config.memory
+  }
+
+  # Environment variables - merges standard and custom
+  runtime_environment_variables = merge(
+    {
+      ENVIRONMENT  = var.environment
+      PROJECT_NAME = var.project_name
+      SERVICE_NAME = "myservice"
+      LOG_LEVEL    = var.environment == "prod" ? "INFO" : "DEBUG"
+    },
+    local.myservice_config.environment_variables
+  )
+}
+```
+
+**Benefits**:
+- ✅ **Self-contained**: Each service file has its own configuration
+- ✅ **Easy to customize**: Edit CPU, memory, scaling directly in service file
+- ✅ **Custom env vars**: Add service-specific environment variables easily
+- ✅ **No central config**: No more `apprunner_service_configs` in `dev.tfvars`
 
 **Script prompts**:
 ```
@@ -231,6 +320,7 @@ This will make the service accessible via API Gateway at /<service>/*
 
 **Generated infrastructure per service**:
 - AppRunner service using container images from ECR
+- Service-specific configuration via `locals` block
 - Auto-scaling configuration (min/max instances, concurrency)
 - Health check configuration (path, interval, timeout)
 - CloudWatch Logs integration via IAM instance role

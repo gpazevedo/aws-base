@@ -323,6 +323,24 @@ cat > "$APPRUNNER_TF_FILE" <<'TEMPLATE_EOF'
 # This file defines the App Runner service for the SERVICE_NAME_PLACEHOLDER service
 # =============================================================================
 
+# Service-specific configuration
+# Edit these values to customize this App Runner service
+locals {
+  SERVICE_NAME_PLACEHOLDER_config = {
+    cpu             = "1024"
+    memory          = "2048"
+    port            = 8080
+    min_instances   = 1
+    max_instances   = 5
+    max_concurrency = 100
+    health_check_path = "/health"
+    # Add service-specific environment variables here
+    environment_variables = {
+      # KEY = "value"
+    }
+  }
+}
+
 # Get App Runner IAM roles from bootstrap
 data "aws_iam_role" "apprunner_access_SERVICE_NAME_PLACEHOLDER" {
   name = "${var.project_name}-apprunner-access"
@@ -357,15 +375,18 @@ resource "aws_apprunner_service" "SERVICE_NAME_PLACEHOLDER" {
       image_repository_type = "ECR"
 
       image_configuration {
-        # Port - uses per-service config if available, otherwise default
-        port = try(var.apprunner_service_configs["SERVICE_NAME_PLACEHOLDER"].port, var.apprunner_port)
+        # Port - uses local config
+        port = local.SERVICE_NAME_PLACEHOLDER_config.port
 
-        runtime_environment_variables = {
-          ENVIRONMENT  = var.environment
-          PROJECT_NAME = var.project_name
-          SERVICE_NAME = "SERVICE_NAME_PLACEHOLDER"
-          LOG_LEVEL    = var.environment == "prod" ? "INFO" : "DEBUG"
-        }
+        runtime_environment_variables = merge(
+          {
+            ENVIRONMENT  = var.environment
+            PROJECT_NAME = var.project_name
+            SERVICE_NAME = "SERVICE_NAME_PLACEHOLDER"
+            LOG_LEVEL    = var.environment == "prod" ? "INFO" : "DEBUG"
+          },
+          local.SERVICE_NAME_PLACEHOLDER_config.environment_variables
+        )
       }
     }
 
@@ -377,16 +398,16 @@ resource "aws_apprunner_service" "SERVICE_NAME_PLACEHOLDER" {
   }
 
   instance_configuration {
-    # CPU and Memory - uses per-service config if available, otherwise defaults
-    cpu    = try(var.apprunner_service_configs["SERVICE_NAME_PLACEHOLDER"].cpu, var.apprunner_cpu)
-    memory = try(var.apprunner_service_configs["SERVICE_NAME_PLACEHOLDER"].memory, var.apprunner_memory)
+    # CPU and Memory - uses local config
+    cpu    = local.SERVICE_NAME_PLACEHOLDER_config.cpu
+    memory = local.SERVICE_NAME_PLACEHOLDER_config.memory
 
     instance_role_arn = data.aws_iam_role.apprunner_instance_SERVICE_NAME_PLACEHOLDER.arn
   }
 
   health_check_configuration {
     protocol            = "HTTP"
-    path                = try(var.apprunner_service_configs["SERVICE_NAME_PLACEHOLDER"].health_check_path, var.health_check_path)
+    path                = local.SERVICE_NAME_PLACEHOLDER_config.health_check_path
     interval            = var.health_check_interval
     timeout             = var.health_check_timeout
     healthy_threshold   = var.health_check_healthy_threshold
@@ -412,10 +433,10 @@ resource "aws_apprunner_service" "SERVICE_NAME_PLACEHOLDER" {
 resource "aws_apprunner_auto_scaling_configuration_version" "SERVICE_NAME_PLACEHOLDER" {
   auto_scaling_configuration_name = "${var.project_name}-${var.environment}-SERVICE_NAME_PLACEHOLDER-as"
 
-  # Uses per-service config if available, otherwise defaults
-  min_size         = try(var.apprunner_service_configs["SERVICE_NAME_PLACEHOLDER"].min_instances, var.apprunner_min_instances)
-  max_size         = try(var.apprunner_service_configs["SERVICE_NAME_PLACEHOLDER"].max_instances, var.apprunner_max_instances)
-  max_concurrency  = try(var.apprunner_service_configs["SERVICE_NAME_PLACEHOLDER"].max_concurrency, var.apprunner_max_concurrency)
+  # Uses local config
+  min_size        = local.SERVICE_NAME_PLACEHOLDER_config.min_instances
+  max_size        = local.SERVICE_NAME_PLACEHOLDER_config.max_instances
+  max_concurrency = local.SERVICE_NAME_PLACEHOLDER_config.max_concurrency
 
   tags = {
     Name    = "${var.project_name}-${var.environment}-SERVICE_NAME_PLACEHOLDER-as"

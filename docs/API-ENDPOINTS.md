@@ -50,10 +50,15 @@ terraform/
 
 **Path-Based Routing:**
 
-- **Lambda 'api' service** → Root path: `/`, `/health`, `/greet`
+All services use explicit path prefixes (no catch-all routing):
+
+- **Lambda 'api' service** → `/api/*` paths (e.g., `/api/health`, `/api/greet`)
+- **Lambda 's3vector' service** → `/s3vector/*` paths (e.g., `/s3vector/health`, `/s3vector/embeddings/generate`)
 - **Lambda 'worker' service** → `/worker/*` paths
 - **AppRunner 'runner' service** → `/runner/*` paths
 - **AppRunner 'web' service** → `/web/*` paths
+
+Requests to undefined paths (e.g., `/undefined`) return **404 Not Found**.
 
 For troubleshooting API Gateway issues, see **[Troubleshooting Guide](TROUBLESHOOTING.md)**.
 
@@ -431,14 +436,14 @@ https://<api-id>.execute-api.<region>.amazonaws.com/<stage>/
 PRIMARY_URL=$(cd terraform && terraform output -raw primary_endpoint)
 
 # Health check
-curl $PRIMARY_URL/health
+curl $PRIMARY_URL/api/health
 
 # Greet endpoint
-curl "$PRIMARY_URL/greet?name=Alice"
+curl "$PRIMARY_URL/api/greet?name=Alice"
 
 # Interactive docs
-open "$PRIMARY_URL/docs"  # macOS
-xdg-open "$PRIMARY_URL/docs"  # Linux
+open "$PRIMARY_URL/api/docs"  # macOS
+xdg-open "$PRIMARY_URL/api/docs"  # Linux
 ```
 
 **Features:**
@@ -563,14 +568,14 @@ Include the `x-api-key` header in all requests:
 
 ```bash
 # Health check with API Key
-curl -H "x-api-key: $API_KEY" $PRIMARY_URL/health
+curl -H "x-api-key: $API_KEY" $PRIMARY_URL/api/health
 
 # Greet endpoint with API Key
-curl -H "x-api-key: $API_KEY" "$PRIMARY_URL/greet?name=Alice"
+curl -H "x-api-key: $API_KEY" "$PRIMARY_URL/api/greet?name=Alice"
 
 # POST request with API Key
 curl -X POST -H "x-api-key: $API_KEY" -H "Content-Type: application/json" \
-  $PRIMARY_URL/greet -d '{"name": "Bob"}'
+  $PRIMARY_URL/api/greet -d '{"name": "Bob"}'
 ```
 
 **Features:**
@@ -734,13 +739,14 @@ When using path-based routing with multiple Lambda and AppRunner services:
 # Get primary API Gateway endpoint
 PRIMARY_URL=$(cd terraform && terraform output -raw primary_endpoint)
 
-# Test Lambda services (root path routing)
-curl $PRIMARY_URL/health              # 'api' service health
-curl "$PRIMARY_URL/greet?name=Test"   # 'api' service endpoint
+# Test Lambda services (explicit path prefix routing)
+curl $PRIMARY_URL/api/health          # 'api' service health
+curl "$PRIMARY_URL/api/greet?name=Test"   # 'api' service endpoint
+curl $PRIMARY_URL/s3vector/health     # 's3vector' service health
 curl $PRIMARY_URL/worker/health       # 'worker' service health
 curl $PRIMARY_URL/scheduler/status    # 'scheduler' service status
 
-# Test AppRunner services (path prefix routing)
+# Test AppRunner services (explicit path prefix routing)
 curl $PRIMARY_URL/runner/health       # AppRunner 'runner' service
 curl "$PRIMARY_URL/runner/greet?name=Claude"  # AppRunner greet endpoint
 curl $PRIMARY_URL/web/health          # AppRunner 'web' service

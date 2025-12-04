@@ -189,6 +189,25 @@ output "default_security_group_id" {
 }
 
 # =============================================================================
+# S3 Vector Storage + Amazon Bedrock Embeddings
+# =============================================================================
+
+output "s3_vector_service_policy_arn" {
+  description = "ARN of S3 vector service access policy (attach to Lambda/AppRunner roles)"
+  value       = var.enable_lambda || var.enable_apprunner ? aws_iam_policy.s3_vector_service_access[0].arn : null
+}
+
+output "s3_vector_management_policy_arn" {
+  description = "ARN of S3 vector management policy (attached to GitHub Actions roles)"
+  value       = var.enable_lambda || var.enable_apprunner ? aws_iam_policy.s3_vector_management[0].arn : null
+}
+
+output "bedrock_invocation_policy_arn" {
+  description = "ARN of Bedrock model invocation policy (attach to Lambda/AppRunner roles)"
+  value       = var.enable_lambda || var.enable_apprunner ? aws_iam_policy.bedrock_invocation[0].arn : null
+}
+
+# =============================================================================
 # Summary Output
 # =============================================================================
 

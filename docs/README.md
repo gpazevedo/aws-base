@@ -31,6 +31,7 @@ Complete documentation for the AWS Bootstrap Infrastructure project.
 
 ## Configuration
 
+- **[Service Configuration](SERVICE-CONFIGURATION.md)** - Service-specific configuration pattern using locals
 - **[Pre-commit Hooks](PRE-COMMIT.md)** - Code quality automation
 - **[Release Please](RELEASE-PLEASE.md)** - Automated releases and versioning
 - **[Monitoring](MONITORING.md)** - CloudWatch, distributed tracing, and observability
@@ -47,6 +48,7 @@ Complete documentation for the AWS Bootstrap Infrastructure project.
 | New to project? | [Installation Guide](INSTALLATION.md) |
 | Deploy Lambda services | [Terraform Bootstrap](TERRAFORM-BOOTSTRAP.md) |
 | Add AppRunner services | [Multi-Service Architecture](MULTI-SERVICE-ARCHITECTURE.md) |
+| Configure services | [Service Configuration](SERVICE-CONFIGURATION.md) |
 | Setup CI/CD pipelines | [GitHub Actions](GITHUB-ACTIONS.md) |
 | Test API endpoints | [API Endpoints](API-ENDPOINTS.md) |
 | Build multi-arch Docker | [Docker Guide](DOCKER.md) |
@@ -55,6 +57,29 @@ Complete documentation for the AWS Bootstrap Infrastructure project.
 | Integrate AWS services | [AWS Services Integration](AWS-SERVICES-INTEGRATION.md) |
 
 ## Recent Updates
+
+### Service Configuration Pattern Migration (2025-12-04)
+
+**Changes:**
+
+- ✅ Migrated from centralized `tfvars` configs to service-local `locals` blocks
+- ✅ Updated setup scripts to generate self-contained service configurations
+- ✅ Each service now has its configuration in its own Terraform file
+- ✅ Deployed s3vector Lambda service with Bedrock and S3 integration
+- ✅ API Gateway now requires API key authentication
+
+**Benefits:**
+
+- Self-contained services - configuration lives with service definition
+- Easier navigation - no hunting through large tfvars files
+- Better version control - service changes isolated to service files
+- More scalable - adding services doesn't bloat central configs
+
+**Documentation:**
+
+- Created [Service Configuration Guide](SERVICE-CONFIGURATION.md)
+- Updated [.claude/README.md](../.claude/README.md) with current architecture
+- Added s3vector service to deployed services list
 
 ### Multi-Service API Gateway Implementation (2025-11-23)
 

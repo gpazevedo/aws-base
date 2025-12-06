@@ -267,6 +267,26 @@ variable "api_usage_plan_quota_period" {
 }
 
 # =============================================================================
+# Per-Service API Keys (Inter-Service Communication)
+# =============================================================================
+
+variable "enable_service_api_keys" {
+  description = "Enable per-service API keys for inter-service communication"
+  type        = bool
+  default     = false
+}
+
+variable "service_api_keys" {
+  description = "Map of services that need API keys for inter-service communication. Auto-populated by service configurations."
+  type = map(object({
+    quota_limit  = number
+    quota_period = string
+    description  = string
+  }))
+  default = {}
+}
+
+# =============================================================================
 # Tags
 # =============================================================================
 
@@ -335,6 +355,23 @@ output "api_key_value" {
   description = "API Key value (sensitive, if enabled)"
   value       = try(module.api_gateway_shared[0].api_key_value, null)
   sensitive   = true
+}
+
+# Per-Service API Keys
+output "service_api_key_ids" {
+  description = "Map of service names to their API Key IDs (for inter-service communication)"
+  value       = try(module.api_gateway_shared[0].service_api_key_ids, {})
+}
+
+output "service_api_key_values" {
+  description = "Map of service names to their API Key values (sensitive, for inter-service communication)"
+  value       = try(module.api_gateway_shared[0].service_api_key_values, {})
+  sensitive   = true
+}
+
+output "service_api_key_secret_arns" {
+  description = "Map of service names to their Secrets Manager ARNs (for API key retrieval)"
+  value       = try(module.api_gateway_shared[0].service_api_key_secret_arns, {})
 }
 
 # =============================================================================
@@ -428,6 +465,10 @@ api_key_name                = ""     # Auto-generated if not specified
 api_usage_plan_quota_limit  = 0      # Max requests per period (0 = unlimited)
 api_usage_plan_quota_period = "MONTH"
 
+# Per-Service API Keys (Inter-Service Communication)
+enable_service_api_keys = false  # Set to true to enable per-service API keys
+# service_api_keys is auto-populated from service locals (e.g., local.api_service_api_key)
+
 # =============================================================================
 # Resource Tagging
 # =============================================================================
@@ -472,6 +513,15 @@ module "api_gateway_shared" {
   # NOTE: integration_ids will be automatically added by setup-terraform-lambda.sh
   # and setup-terraform-apprunner.sh when you add services. This ensures the
   # API Gateway deployment waits for all integrations to be created first.
+
+  # Per-Service API Keys (Inter-Service Communication)
+  # Services automatically add themselves to this merge when using setup scripts
+  service_api_keys = merge(
+    # Service API keys will be auto-added here by setup-terraform-lambda.sh
+    # and setup-terraform-apprunner.sh. Example:
+    # local.api_service_api_key,
+    # local.runner_service_api_key,
+  )
 
   # Rate Limiting
   throttle_burst_limit = var.api_throttle_burst_limit

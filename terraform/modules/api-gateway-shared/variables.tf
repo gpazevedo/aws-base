@@ -111,6 +111,36 @@ variable "usage_plan_quota_period" {
 }
 
 # =============================================================================
+# Per-Service API Keys (Inter-Service Communication)
+# =============================================================================
+
+variable "service_api_keys" {
+  description = "Map of services that need API keys for inter-service communication"
+  type = map(object({
+    quota_limit  = number       # Quota limit (0 = unlimited)
+    quota_period = string       # DAY, WEEK, or MONTH
+    description  = string       # Description of the service
+  }))
+  default = {}
+
+  validation {
+    condition = alltrue([
+      for k, v in var.service_api_keys :
+      contains(["DAY", "WEEK", "MONTH"], v.quota_period)
+    ])
+    error_message = "All quota_period values must be DAY, WEEK, or MONTH"
+  }
+
+  validation {
+    condition = alltrue([
+      for k, v in var.service_api_keys :
+      v.quota_limit >= 0
+    ])
+    error_message = "quota_limit must be non-negative (0 = unlimited)"
+  }
+}
+
+# =============================================================================
 # Tags
 # =============================================================================
 

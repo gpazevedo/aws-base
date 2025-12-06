@@ -71,3 +71,40 @@ output "usage_plan_id" {
   description = "ID of the Usage Plan (if API Key is enabled)"
   value       = var.enable_api_key ? aws_api_gateway_usage_plan.usage_plan[0].id : null
 }
+
+# =============================================================================
+# Per-Service API Key Outputs
+# =============================================================================
+
+output "service_api_key_ids" {
+  description = "Map of service names to their API key IDs"
+  value = {
+    for service, key in aws_api_gateway_api_key.service_keys :
+    service => key.id
+  }
+}
+
+output "service_api_key_values" {
+  description = "Map of service names to their API key values (sensitive)"
+  value = {
+    for service, key in aws_api_gateway_api_key.service_keys :
+    service => key.value
+  }
+  sensitive = true
+}
+
+output "service_api_key_secrets" {
+  description = "Map of service names to their Secrets Manager secret ARNs"
+  value = {
+    for service, secret in aws_secretsmanager_secret.service_api_keys :
+    service => secret.arn
+  }
+}
+
+output "service_usage_plan_ids" {
+  description = "Map of service names to their usage plan IDs"
+  value = {
+    for service, plan in aws_api_gateway_usage_plan.service_plans :
+    service => plan.id
+  }
+}

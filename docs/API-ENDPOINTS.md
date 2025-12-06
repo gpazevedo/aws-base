@@ -25,7 +25,7 @@ This template uses a **modular API Gateway architecture** for better organizatio
 
 The API Gateway configuration is split into reusable modules:
 
-```
+```text
 terraform/
 ├── api-gateway.tf                           # Orchestrates all integrations
 ├── modules/
@@ -104,11 +104,13 @@ FastAPI automatically generates interactive documentation:
 **Purpose:** Provides detailed health information including uptime and version.
 
 **Request:**
+
 ```bash
 GET /health
 ```
 
 **Response (200 OK):**
+
 ```json
 {
   "status": "healthy",
@@ -119,12 +121,14 @@ GET /health
 ```
 
 **Response Fields:**
+
 - `status`: Current health status (`healthy`)
 - `timestamp`: ISO 8601 timestamp with timezone (UTC)
 - `uptime_seconds`: Time since application started
 - `version`: Application version
 
 **Use Cases:**
+
 - Load balancer health checks
 - Monitoring and alerting systems
 - Application status dashboards
@@ -136,11 +140,13 @@ GET /health
 **Purpose:** Indicates if the application is running (Kubernetes-style probe).
 
 **Request:**
+
 ```bash
 GET /liveness
 ```
 
 **Response (200 OK):**
+
 ```json
 {
   "status": "alive"
@@ -148,6 +154,7 @@ GET /liveness
 ```
 
 **Use Cases:**
+
 - Kubernetes liveness probes
 - Container orchestration platforms
 - Determining if a restart is needed
@@ -159,11 +166,13 @@ GET /liveness
 **Purpose:** Indicates if the application is ready to receive traffic.
 
 **Request:**
+
 ```bash
 GET /readiness
 ```
 
 **Response (200 OK):**
+
 ```json
 {
   "status": "ready"
@@ -172,12 +181,14 @@ GET /readiness
 
 **Extensibility:**
 You can extend this endpoint to check:
+
 - Database connectivity
 - External service availability
 - Cache availability
 - Required configuration presence
 
 **Example Extension:**
+
 ```python
 @app.get("/readiness", response_model=StatusResponse, tags=["Health"])
 async def readiness_probe() -> StatusResponse:
@@ -206,11 +217,13 @@ async def readiness_probe() -> StatusResponse:
 **Purpose:** Welcome message and version information.
 
 **Request:**
+
 ```bash
 GET /
 ```
 
 **Response (200 OK):**
+
 ```json
 {
   "message": "Hello, World!",
@@ -225,14 +238,17 @@ GET /
 **Purpose:** Personalized greeting using query parameter.
 
 **Request:**
+
 ```bash
 GET /greet?name=Alice
 ```
 
 **Parameters:**
+
 - `name` (query, optional): Name to greet (default: "World")
 
 **Response (200 OK):**
+
 ```json
 {
   "message": "Hello, Alice!",
@@ -241,6 +257,7 @@ GET /greet?name=Alice
 ```
 
 **Examples:**
+
 ```bash
 # Default name
 curl https://<YOUR-PROJECT>-api.execute-api.us-east-1.amazonaws.com/greet
@@ -258,6 +275,7 @@ curl https://<YOUR-PROJECT>-api.execute-api.us-east-1.amazonaws.com/greet?name=A
 **Purpose:** Personalized greeting using request body.
 
 **Request:**
+
 ```bash
 POST /greet
 Content-Type: application/json
@@ -268,9 +286,11 @@ Content-Type: application/json
 ```
 
 **Request Body:**
+
 - `name` (string, required): Name to greet
 
 **Response (200 OK):**
+
 ```json
 {
   "message": "Hello, Bob!",
@@ -279,6 +299,7 @@ Content-Type: application/json
 ```
 
 **Validation Error (422):**
+
 ```json
 {
   "detail": [
@@ -293,6 +314,7 @@ Content-Type: application/json
 ```
 
 **Examples:**
+
 ```bash
 # Valid request
 curl -X POST https://<YOUR-PROJECT>-api.execute-api.us-east-1.amazonaws.com/greet \
@@ -313,11 +335,13 @@ curl -X POST https://<YOUR-PROJECT>-api.execute-api.us-east-1.amazonaws.com/gree
 **Purpose:** Test error handling and monitoring.
 
 **Request:**
+
 ```bash
 GET /error
 ```
 
 **Response (500 Internal Server Error):**
+
 ```json
 {
   "detail": "This is a test error"
@@ -325,6 +349,7 @@ GET /error
 ```
 
 **Use Cases:**
+
 - Testing error monitoring systems
 - Validating error handling pipelines
 - Testing alerting configurations
@@ -340,6 +365,7 @@ FastAPI automatically generates interactive API documentation that's always up-t
 **Access:** `https://<YOUR-PROJECT>-api-url/docs`
 
 **Features:**
+
 - Interactive API explorer
 - Try endpoints directly from browser
 - View request/response schemas
@@ -347,6 +373,7 @@ FastAPI automatically generates interactive API documentation that's always up-t
 - Test authentication (if configured)
 
 **Screenshot:**
+
 ```
 ┌─────────────────────────────────────────────────┐
 │ AWS Base Python API                      v0.1.0 │
@@ -371,6 +398,7 @@ FastAPI automatically generates interactive API documentation that's always up-t
 **Access:** `https://<YOUR-PROJECT>-api-url/redoc`
 
 **Features:**
+
 - Three-panel layout
 - Better for documentation reading
 - Cleaner interface
@@ -382,6 +410,7 @@ FastAPI automatically generates interactive API documentation that's always up-t
 **Access:** `https://<YOUR-PROJECT>-api-url/openapi.json`
 
 **Features:**
+
 - Machine-readable API specification
 - OpenAPI 3.0 standard
 - Import into tools like Postman, Insomnia
@@ -389,6 +418,7 @@ FastAPI automatically generates interactive API documentation that's always up-t
 - API versioning and documentation
 
 **Example:**
+
 ```bash
 # Download OpenAPI schema
 curl https://<YOUR-PROJECT>-api-url/openapi.json > api-schema.json
@@ -413,6 +443,7 @@ When deployed to AWS, your FastAPI application is accessible through API Gateway
 API Gateway is the **standard entry point** for all cloud deployments, providing rate limiting, logging, security, and observability features.
 
 **Get the URL:**
+
 ```bash
 # Get primary endpoint from Terraform output (automatically selects correct URL)
 cd terraform
@@ -426,11 +457,13 @@ terraform output deployment_mode
 ```
 
 **URL Format:**
+
 ```
 https://<api-id>.execute-api.<region>.amazonaws.com/<stage>/
 ```
 
 **Example:**
+
 ```bash
 # Get primary endpoint
 PRIMARY_URL=$(cd terraform && terraform output -raw primary_endpoint)
@@ -447,6 +480,7 @@ xdg-open "$PRIMARY_URL/api/docs"  # Linux
 ```
 
 **Features:**
+
 - ✅ Rate limiting and throttling (configurable)
 - ✅ **API Key authentication** (optional)
 - ✅ CloudWatch access logs
@@ -460,6 +494,7 @@ xdg-open "$PRIMARY_URL/api/docs"  # Linux
 Lambda Function URLs provide direct HTTP(S) access without API Gateway overhead. **Only enabled for local development** (`enable_direct_access = true`).
 
 **Get the URL:**
+
 ```bash
 # Get function URL from Terraform output (only when enable_direct_access = true)
 cd terraform
@@ -473,11 +508,13 @@ aws lambda get-function-url-config \
 ```
 
 **URL Format:**
+
 ```
 https://<unique-id>.lambda-url.<region>.on.aws/
 ```
 
 **Example:**
+
 ```bash
 # Test your Lambda via Function URL (local development)
 FUNCTION_URL=$(cd terraform && terraform output -raw lambda_function_url)
@@ -494,11 +531,13 @@ xdg-open "$FUNCTION_URL/docs"  # Linux
 ```
 
 **When to use:**
+
 - Local development and testing
 - Fast iteration without API Gateway overhead
 - Set `enable_direct_access = true` in `environments/local.tfvars`
 
 **When NOT to use:**
+
 - Production deployments (use API Gateway instead)
 - Cloud environments requiring rate limiting
 - When you need centralized logging and monitoring
@@ -527,72 +566,159 @@ cors_allow_origins = ["*"]
 cors_allow_methods = ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
 cors_allow_headers = ["Content-Type", "Authorization"]
 
-# API Key authentication (optional)
-enable_api_key              = false  # Set to true to enable
-api_key_name                = "<YOUR-PROJECT>-dev-api-key"
-api_usage_plan_quota_limit  = 10000   # Max requests per month
-api_usage_plan_quota_period = "MONTH" # DAY, WEEK, or MONTH
+# Per-Service API Keys (recommended for production)
+enable_service_api_keys = true  # Enable individual API keys per service
+
+# Each service defines its own API key configuration in its .tf file
+# See terraform/lambda-api.tf, terraform/apprunner-runner.tf, etc.
 ```
 
 ### API Key Authentication
 
-Enable API Key authentication to secure your API endpoints and track usage per key.
+This project supports **per-service API keys** for secure inter-service communication. Each service (API, Runner, S3Vector) has its own API key for calling other services through API Gateway.
 
-**Enable API Keys:**
+#### Architecture Overview
 
-Update your `terraform/environments/{env}.tfvars`:
+```text
+API Gateway (Shared)
+├── Per-Service API Keys
+│   ├── api-service-key      → Usage Plan (100k/month)
+│   ├── runner-service-key   → Usage Plan (50k/month)
+│   └── s3vector-service-key → Usage Plan (200k/month)
+└── Routes
+    ├── /api/*      → API Lambda
+    ├── /runner/*   → Runner AppRunner
+    └── /s3vector/* → S3Vector Lambda
+```
+
+**Benefits:**
+
+- ✅ Security - Each service has its own credentials
+- ✅ Monitoring - Track usage per service
+- ✅ Quotas - Different limits per service
+- ✅ Isolation - Compromised key affects only one service
+
+#### Enable Per-Service API Keys
+
+> **Quick Setup:** The setup scripts automatically generate all API key infrastructure. See **[API Keys Quick Start](API-KEYS-QUICKSTART.md)** for a 5-minute setup guide.
+
+**Step 1:** Generate service with API key support:
+
+```bash
+# Lambda service
+./scripts/setup-terraform-lambda.sh <service-name>
+
+# App Runner service
+./scripts/setup-terraform-apprunner.sh <service-name>
+```
+
+These scripts automatically create:
+
+- ✅ Service API key configuration
+- ✅ Secrets Manager IAM policy
+- ✅ Required environment variables
+
+**Step 2:** Enable in `terraform/environments/{env}.tfvars`:
 
 ```hcl
-enable_api_key = true
-api_key_name   = "<YOUR-PROJECT>-dev-api-key"
-
-# Optional: Usage quotas
-api_usage_plan_quota_limit  = 10000
-api_usage_plan_quota_period = "MONTH"
+enable_service_api_keys = true
 ```
 
-**Retrieve API Key:**
+**Step 3 (Optional):** Customize quotas in the generated `.tf` file:
+
+```hcl
+# terraform/lambda-api.tf or terraform/apprunner-runner.tf
+locals {
+  api_service_api_key = var.enable_service_api_keys ? {
+    api = {
+      quota_limit  = 100000   # ← Adjust as needed
+      quota_period = "MONTH"
+      description  = "API service key"
+    }
+  } : {}
+}
+```
+
+**Step 4:** Deploy with Terraform:
 
 ```bash
-# Get API Key value (sensitive)
 cd terraform
-terraform output -raw api_key_value
-
-# Store in environment variable
-export API_KEY=$(cd terraform && terraform output -raw api_key_value)
+terraform apply -var-file=environments/dev.tfvars
 ```
 
-**Use API Key in requests:**
-
-Include the `x-api-key` header in all requests:
+#### Retrieve Service API Keys
 
 ```bash
-# Health check with API Key
-curl -H "x-api-key: $API_KEY" $PRIMARY_URL/api/health
+# Get all service API keys (JSON map)
+cd terraform
+terraform output -json service_api_key_values
 
-# Greet endpoint with API Key
-curl -H "x-api-key: $API_KEY" "$PRIMARY_URL/api/greet?name=Alice"
+# Get specific service key
+terraform output -json service_api_key_values | jq -r '.api'
+terraform output -json service_api_key_values | jq -r '.runner'
+
+# Keys are also stored in AWS Secrets Manager
+aws secretsmanager get-secret-value \
+  --secret-id fin-advisor/dev/api/api-key \
+  --query SecretString --output text
+```
+
+#### Using API Keys in Code
+
+Services use the `ServiceAPIClient` from the shared library, which automatically retrieves and injects the API key:
+
+```python
+from shared import ServiceAPIClient
+
+# Initialize client (auto-loads API key from Secrets Manager)
+client = ServiceAPIClient(
+    service_name="api",           # This service's name
+    project_name="fin-advisor",   # Or use PROJECT_NAME env var
+    environment="dev"             # Or use ENVIRONMENT env var
+)
+
+# Make requests (API key injected automatically)
+response = await client.get("https://api-gateway-url/runner/status")
+```
+
+#### Manual API Key Usage
+
+For external testing or debugging:
+
+```bash
+# Get API key for testing
+export API_KEY=$(cd terraform && terraform output -json service_api_key_values | jq -r '.api')
+
+# Use in requests with x-api-key header
+curl -H "x-api-key: $API_KEY" $PRIMARY_URL/runner/health
+curl -H "x-api-key: $API_KEY" "$PRIMARY_URL/s3vector/status"
 
 # POST request with API Key
-curl -X POST -H "x-api-key: $API_KEY" -H "Content-Type: application/json" \
-  $PRIMARY_URL/api/greet -d '{"name": "Bob"}'
+curl -X POST \
+  -H "x-api-key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  $PRIMARY_URL/runner/process \
+  -d '{"task": "example"}'
 ```
 
-**Features:**
-- Rate limiting per API Key
-- Usage tracking in CloudWatch
-- Configurable quotas (daily/weekly/monthly)
-- Easy rotation (recreate resource)
-- Multiple keys support (manual configuration)
-
 **Important Notes:**
+
 - Header name must be `x-api-key` (lowercase)
 - API Keys work only with API Gateway (not Lambda Function URLs)
-- Store API Keys securely (environment variables, secrets managers)
+- Keys are cached in ServiceAPIClient to reduce Secrets Manager costs
+- Each service can only access its own API key from Secrets Manager (IAM enforced)
+
+#### Complete Documentation
+
+For full setup instructions, security best practices, and troubleshooting, see:
+
+- **[Per-Service API Keys Guide](PER-SERVICE-API-KEYS.md)** - Complete setup and usage
+- **[API Keys Quick Start](API-KEYS-QUICKSTART.md)** - 5-minute setup guide
 
 **Architecture:**
 
 The API Gateway implementation uses a modular architecture:
+
 - `modules/api-gateway-shared/` - Shared API Gateway configuration (rate limiting, logging, security)
 - `modules/api-gateway-lambda/` - Lambda integration (AWS_PROXY)
 - `modules/api-gateway-apprunner/` - App Runner integration (HTTP_PROXY)
@@ -606,6 +732,7 @@ See [terraform/modules/*/README.md](../terraform/modules/) for module documentat
 ### Running Locally
 
 **Option 1: Using uvicorn directly**
+
 ```bash
 cd backend/api
 
@@ -619,20 +746,23 @@ uv run python main.py
 ```
 
 **Option 2: Using uvicorn command**
+
 ```bash
 cd backend/api
 uv run uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 **Access endpoints:**
-- API: http://localhost:8000
-- Health: http://localhost:8000/health
-- Docs: http://localhost:8000/docs
-- ReDoc: http://localhost:8000/redoc
+
+- API: <http://localhost:8000>
+- Health: <http://localhost:8000/health>
+- Docs: <http://localhost:8000/docs>
+- ReDoc: <http://localhost:8000/redoc>
 
 ### Testing with Docker (Lambda Runtime)
 
 **Build and run:**
+
 ```bash
 # Build for local testing (amd64)
 make docker-build-amd64 SERVICE=api
@@ -717,6 +847,7 @@ print(response.json())
 ### Automated Testing
 
 Run the test suite:
+
 ```bash
 cd backend/api
 

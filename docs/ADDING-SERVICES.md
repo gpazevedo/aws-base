@@ -115,6 +115,59 @@ terraform apply -var-file=environments/dev.tfvars
 
 ---
 
+## 🔐 API Keys for Inter-Service Communication
+
+When your new service needs to call other services through API Gateway, enable API key authentication for secure inter-service communication.
+
+### Automatic Setup
+
+API keys are **automatically configured** by the setup scripts:
+
+```bash
+# Lambda service
+./scripts/setup-terraform-lambda.sh <service-name>
+
+# App Runner service
+./scripts/setup-terraform-apprunner.sh <service-name>
+```
+
+These scripts automatically create:
+
+- ✅ Service API key configuration (100k requests/month default)
+- ✅ Secrets Manager IAM policy for retrieving API keys
+- ✅ Required environment variables (PROJECT_NAME, ENVIRONMENT, API_GATEWAY_URL, AWS_REGION)
+
+### Enable API Keys
+
+In `terraform/environments/dev.tfvars`:
+
+```hcl
+enable_service_api_keys = true
+```
+
+### Using API Keys in Code
+
+Use the `ServiceAPIClient` from the shared library - it automatically retrieves and injects API keys:
+
+```python
+from shared.api_client import ServiceAPIClient, get_service_url
+
+# Initialize with your service name
+async with ServiceAPIClient(service_name="api") as client:
+    # Call another service - API key auto-injected
+    runner_url = get_service_url("runner")
+    response = await client.get(f"{runner_url}/health")
+    return response.json()
+```
+
+### Learn More
+
+- 📖 **[API Keys Quick Start](API-KEYS-QUICKSTART.md)** - 5-minute setup guide
+- 📖 **[Per-Service API Keys Guide](PER-SERVICE-API-KEYS.md)** - Complete reference with security best practices
+- 📖 **[API Endpoints](API-ENDPOINTS.md)** - API Gateway configuration and testing
+
+---
+
 ## ⚙️ Configuration
 
 ### Service Settings

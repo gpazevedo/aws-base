@@ -339,6 +339,16 @@ locals {
       # KEY = "value"
     }
   }
+
+  # Service API Key configuration
+  # Defines the API key for this service when enable_service_api_keys = true
+  SERVICE_NAME_PLACEHOLDER_service_api_key = var.enable_service_api_keys ? {
+    SERVICE_NAME_PLACEHOLDER = {
+      quota_limit  = 100000
+      quota_period = "MONTH"
+      description  = "SERVICE_NAME_PLACEHOLDER service"
+    }
+  } : {}
 }
 
 # Get App Runner IAM roles from bootstrap
@@ -348,6 +358,25 @@ data "aws_iam_role" "apprunner_access_SERVICE_NAME_PLACEHOLDER" {
 
 data "aws_iam_role" "apprunner_instance_SERVICE_NAME_PLACEHOLDER" {
   name = "${var.project_name}-apprunner-instance"
+}
+
+# IAM policy for Secrets Manager access (API key retrieval)
+resource "aws_iam_role_policy" "SERVICE_NAME_PLACEHOLDER_secrets_access" {
+  count = var.enable_service_api_keys ? 1 : 0
+
+  name = "${var.project_name}-${var.environment}-SERVICE_NAME_PLACEHOLDER-secrets"
+  role = data.aws_iam_role.apprunner_instance_SERVICE_NAME_PLACEHOLDER.name
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Action = ["secretsmanager:GetSecretValue"]
+      Resource = [
+        "arn:aws:secretsmanager:${var.aws_region}:*:secret:${var.project_name}/${var.environment}/SERVICE_NAME_PLACEHOLDER/api-key-*"
+      ]
+    }]
+  })
 }
 
 # Observability Configuration (OpenTelemetry via X-Ray)
@@ -380,10 +409,12 @@ resource "aws_apprunner_service" "SERVICE_NAME_PLACEHOLDER" {
 
         runtime_environment_variables = merge(
           {
-            ENVIRONMENT  = var.environment
-            PROJECT_NAME = var.project_name
-            SERVICE_NAME = "SERVICE_NAME_PLACEHOLDER"
-            LOG_LEVEL    = var.environment == "prod" ? "INFO" : "DEBUG"
+            ENVIRONMENT     = var.environment
+            PROJECT_NAME    = var.project_name
+            SERVICE_NAME    = "SERVICE_NAME_PLACEHOLDER"
+            LOG_LEVEL       = var.environment == "prod" ? "INFO" : "DEBUG"
+            API_GATEWAY_URL = local.api_gateway_enabled ? module.api_gateway_shared[0].invoke_url : ""
+            AWS_REGION      = var.aws_region
           },
           local.SERVICE_NAME_PLACEHOLDER_config.environment_variables
         )
@@ -526,6 +557,43 @@ EOF
       echo "✅ Added integration module for '${SERVICE_NAME}'"
 
       # =============================================================================
+      # Update service_api_keys merge block (for per-service API keys)
+      # =============================================================================
+      echo "📝 Updating service_api_keys merge block..."
+
+      # Check if service_api_keys merge block exists
+      if grep -q "service_api_keys.*=.*merge(" "$API_GATEWAY_FILE"; then
+        # Check if this service is already in the merge block
+        if ! grep -q "local.${SERVICE_NAME}_service_api_key" "$API_GATEWAY_FILE"; then
+          # Find the merge block and add the new service
+          awk -v service="${SERVICE_NAME}" '
+            /service_api_keys.*=.*merge\(/ {
+              # Found the start of merge block
+              in_merge_block = 1
+              print $0
+              next
+            }
+            in_merge_block && /^[[:space:]]*\)/ {
+              # End of merge block, add new service before closing paren
+              print "    local." service "_service_api_key,"
+              in_merge_block = 0
+              print $0
+              next
+            }
+            { print $0 }
+          ' "$API_GATEWAY_FILE" > "${API_GATEWAY_FILE}.tmp"
+
+          mv "${API_GATEWAY_FILE}.tmp" "$API_GATEWAY_FILE"
+          echo "✅ Added '${SERVICE_NAME}' to service_api_keys merge block"
+        else
+          echo "ℹ️  '${SERVICE_NAME}' already in service_api_keys merge block"
+        fi
+      else
+        echo "⚠️  service_api_keys merge block not found in api-gateway.tf"
+        echo "   You may need to manually add: local.${SERVICE_NAME}_service_api_key"
+      fi
+
+      # =============================================================================
       # Update api_gateway_shared module to include integration_ids
       # =============================================================================
       echo "📝 Updating api_gateway_shared module with integration dependencies..."
@@ -615,4 +683,10 @@ echo "   curl \$APPRUNNER_URL/health"
 echo ""
 echo "💡 To configure service-specific settings (CPU, memory, scaling, etc.):"
 echo "   Edit terraform/environments/dev.tfvars and add to apprunner_service_configs"
+echo ""
+echo "🔑 API Keys:"
+echo "   - Service API key configuration is in locals.${SERVICE_NAME}_service_api_key"
+echo "   - Enable with: enable_service_api_keys = true in tfvars"
+echo "   - Get API key: terraform output -json service_api_key_values | jq -r '.${SERVICE_NAME}'"
+echo "   - See docs/API-KEYS-QUICKSTART.md for usage in code"
 echo ""

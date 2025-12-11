@@ -102,6 +102,7 @@ def create_readiness_endpoint(
 
 
 async def health_check_simple(
+    service_name: str,
     service_version: str,
     start_time: float,
 ) -> HealthResponse:
@@ -109,6 +110,7 @@ async def health_check_simple(
     Simple health check function (direct use).
 
     Args:
+        service_name: Service name
         service_version: Service version
         start_time: Service start time
 
@@ -128,6 +130,7 @@ async def health_check_simple(
         status="healthy",
         timestamp=datetime.now(UTC).isoformat(),
         uptime_seconds=round(uptime, 2),
+        name=service_name,
         version=service_version,
     )
 

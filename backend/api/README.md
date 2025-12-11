@@ -1,6 +1,6 @@
-# runner Service
+# api Service
 
-runner service
+api service
 
 ## Quick Start
 
@@ -10,11 +10,11 @@ runner service
 # Install dependencies
 uv sync
 
-# Run development server (port 8080)
+# Run development server
 uv run python main.py
 
-# Visit http://localhost:8080
-# API docs: http://localhost:8080/docs
+# Visit http://localhost:8000
+# API docs: http://localhost:8000/docs
 ```
 
 ### Testing
@@ -41,16 +41,14 @@ Required:
 - `SERVICE_NAME` - Service identifier
 - `ENVIRONMENT` - Environment (dev, test, prod)
 - `PROJECT_NAME` - Project name (set by Terraform)
-- `API_GATEWAY_URL` - API Gateway URL (set by Terraform, if integrated)
-- `AWS_REGION` - AWS region
-- `PORT` - App Runner port (must be 8080)
+- `API_GATEWAY_URL` - API Gateway URL (set by Terraform)
 
 ## Deployment
 
 ```bash
 # Build and push Docker image
 # The script automatically handles CodeArtifact authentication
-./scripts/docker-push.sh dev runner Dockerfile.apprunner
+./scripts/docker-push.sh dev api Dockerfile.lambda
 
 # Deploy infrastructure
 make app-init-dev app-apply-dev
@@ -74,26 +72,11 @@ See [docs/SHARED-LIBRARY.md](../../docs/SHARED-LIBRARY.md) for details.
 ## Inter-Service Communication
 
 ```python
-from common import ServiceAPIClient, get_service_url
+from shared import ServiceAPIClient, get_service_url
 
-async with ServiceAPIClient(service_name="runner") as client:
+async with ServiceAPIClient(service_name="api") as client:
     url = get_service_url("other-service")
     response = await client.get(f"{url}/endpoint")
 ```
 
 See [docs/API-KEYS-QUICKSTART.md](../../docs/API-KEYS-QUICKSTART.md) for API key setup.
-
-## App Runner Specifics
-
-- **Port**: Must listen on port 8080 (App Runner requirement)
-- **Health Check**: App Runner uses `/health` endpoint by default
-- **Tracing**: ADOT is installed in the container, App Runner provides OTLP collector on localhost:4317
-- **Scaling**: Configured via Terraform (min/max instances, concurrency)
-
-## Architecture
-
-- **Runtime**: Python 3.14 on App Runner
-- **Web Framework**: FastAPI with uvicorn
-- **Observability**: OpenTelemetry + AWS X-Ray via ADOT
-- **Logging**: Structured JSON logging with structlog
-- **Deployment**: Docker container on AWS App Runner

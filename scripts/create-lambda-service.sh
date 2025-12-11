@@ -51,7 +51,6 @@ fi
 
 BACKEND_DIR="backend"
 SERVICE_DIR="$BACKEND_DIR/$SERVICE_NAME"
-SHARED_DIR="$BACKEND_DIR/shared"
 SCRIPTS_DIR="scripts"
 
 echo "🚀 Creating new Lambda service: $SERVICE_NAME"
@@ -71,13 +70,6 @@ echo "🔍 Checking prerequisites..."
 # Check if service already exists
 if [ -d "$SERVICE_DIR" ]; then
   echo "❌ Error: Service directory already exists: $SERVICE_DIR"
-  exit 1
-fi
-
-# Check if shared library exists
-if [ ! -d "$SHARED_DIR" ]; then
-  echo "❌ Error: Shared library not found at: $SHARED_DIR"
-  echo "   Please ensure the shared library is set up first"
   exit 1
 fi
 
@@ -104,9 +96,42 @@ cd "$SERVICE_DIR"
 echo "📦 Initializing uv project..."
 uv init --no-workspace --name "$SERVICE_NAME"
 
-# Add shared library as editable dependency
-echo "📚 Adding shared library..."
-uv add --editable ../shared
+# Add agsys-common library from CodeArtifact
+echo "📚 Adding agsys-common library from CodeArtifact..."
+
+# Check if CodeArtifact is configured
+if [ -z "${UV_INDEX_URL:-}" ]; then
+    echo "⚠️  CodeArtifact not configured. Configuring now..."
+    cd ../..  # Return to project root
+    if [ -f "./scripts/configure-codeartifact.sh" ]; then
+        # Source the script to set UV_INDEX_URL and UV_EXTRA_INDEX_URL
+        eval "$(./scripts/configure-codeartifact.sh)"
+    else
+        echo "❌ Error: CodeArtifact configuration script not found"
+        echo "   Please run: ./scripts/configure-codeartifact.sh"
+        exit 1
+    fi
+    cd "$SERVICE_DIR"  # Return to service directory
+fi
+
+# Add agsys-common from CodeArtifact with version constraint
+# Note: We manually edit pyproject.toml to avoid uv creating a lock file with stale hash
+echo "📚 Adding agsys-common to pyproject.toml..."
+
+# Replace empty dependencies = [] with dependencies containing agsys-common
+sed -i 's/^dependencies = \[\]$/dependencies = [\n    "agsys-common>=0.0.1,<1.0.0",\n]/' pyproject.toml
+
+# Clear uv cache for agsys-common to force fresh download
+echo "🔄 Clearing uv cache for agsys-common..."
+uv cache clean agsys-common || true
+
+# Generate lock file with correct hash from CodeArtifact
+echo "🔄 Generating lock file with correct hash..."
+uv lock
+
+# Now sync/install with the corrected lock file
+echo "📦 Installing dependencies..."
+uv sync
 
 # Add common dependencies
 echo "📦 Adding dependencies..."
@@ -142,7 +167,7 @@ import httpx
 from fastapi import APIRouter, FastAPI, HTTPException, Query
 from fastapi.responses import JSONResponse
 
-from shared import (
+from common import (
     configure_logging,
     configure_tracing,
     get_logger,
@@ -251,7 +276,7 @@ router = APIRouter()
 @router.get("/health", response_model=HealthResponse)
 async def health_check():
     """Simple health check endpoint"""
-    return await health_check_simple(SERVICE_VERSION, START_TIME)
+    return await health_check_simple(SERVICE_NAME, SERVICE_VERSION, START_TIME)
 
 
 @router.get("/status", response_model=ServiceInfo)
@@ -651,21 +676,26 @@ Required:
 ## Deployment
 
 \`\`\`bash
-# Build Docker image
+# Build and push Docker image
+# The script automatically handles CodeArtifact authentication
 ./scripts/docker-push.sh dev $SERVICE_NAME Dockerfile.lambda
 
 # Deploy infrastructure
 make app-init-dev app-apply-dev
 \`\`\`
 
-## Using Shared Library
+**Note:** The build script automatically detects and configures CodeArtifact authentication when needed.
 
-This service uses the shared library for:
+## Using agsys-common Library
+
+This service uses the agsys-common library from CodeArtifact for:
 - ✅ Structured logging (\`configure_logging\`, \`get_logger\`)
 - ✅ OpenTelemetry tracing (\`configure_tracing\`)
 - ✅ Request logging middleware (\`LoggingMiddleware\`)
 - ✅ Health check utilities (\`health_check_simple\`)
 - ✅ Inter-service API calls (\`ServiceAPIClient\`)
+
+The library is installed from AWS CodeArtifact during build.
 
 See [docs/SHARED-LIBRARY.md](../../docs/SHARED-LIBRARY.md) for details.
 
@@ -708,23 +738,25 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 # Set working directory
 WORKDIR ${LAMBDA_TASK_ROOT}
 
-# Copy shared library first (for layer caching)
-COPY backend/shared/ ./shared/
-
 # Copy service files
 COPY backend/SERVICE_NAME/pyproject.toml backend/SERVICE_NAME/uv.lock* ./
 
-# Fix the shared library path in pyproject.toml and uv.lock for Docker environment
-RUN sed -i 's|path = "../shared"|path = "./shared"|g' pyproject.toml && \
-    sed -i 's|editable = "../shared"|editable = "./shared"|g' uv.lock
+# CodeArtifact authentication (passed at build time)
+ARG CODEARTIFACT_INDEX_URL
+ARG UV_EXTRA_INDEX_URL=https://pypi.org/simple/
+ENV UV_INDEX_URL=${CODEARTIFACT_INDEX_URL}
+ENV UV_EXTRA_INDEX_URL=${UV_EXTRA_INDEX_URL}
 
 # Install dependencies to system Python using uv pip
 # Export dependencies from lock file and install to system site-packages
 RUN uv export --no-dev --frozen > requirements.txt && \
     uv pip install --system --no-cache -r requirements.txt
 
-# Copy application code
-COPY backend/SERVICE_NAME/main.py ./
+# Copy application code (all .py files except tests)
+COPY backend/SERVICE_NAME/*.py ./
+
+# Remove test files
+RUN rm -f test_*.py
 
 # Fix permissions for Lambda runtime
 # Lambda runs as UID 993, ensure all files are readable
@@ -784,7 +816,7 @@ echo "   $SERVICE_DIR/tests/test_main.py"
 echo "   $SERVICE_DIR/pytest.ini"
 echo ""
 echo "📦 Dependencies installed:"
-echo "   ✅ shared library (editable)"
+echo "   ✅ agsys-common>=0.0.1,<1.0.0 (from CodeArtifact)"
 echo "   ✅ fastapi[standard], uvicorn[standard]"
 echo "   ✅ boto3, pydantic, httpx"
 echo "   ✅ pytest (dev)"

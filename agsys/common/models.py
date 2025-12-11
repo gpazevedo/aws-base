@@ -14,6 +14,7 @@ class HealthResponse(BaseModel):
     status: str = Field(..., description="Health status (healthy, degraded, unhealthy)")
     timestamp: str = Field(..., description="ISO 8601 timestamp")
     uptime_seconds: float = Field(..., description="Service uptime in seconds")
+    name: str = Field(..., description="Service name")
     version: str = Field(..., description="Service version")
 
 

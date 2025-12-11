@@ -8,12 +8,14 @@
 #
 # Prerequisites: Run ./scripts/setup-terraform-base.sh first
 #
-# Usage: ./scripts/setup-terraform-lambda.sh [SERVICE_NAME] [ENABLE_API_KEY]
+# Usage: ./scripts/setup-terraform-lambda.sh [SERVICE_NAME] [ENABLE_API_KEY] [S3VECTOR_BUCKETS]
 #
 # Examples:
-#   ./scripts/setup-terraform-lambda.sh api false          # Create lambda-api.tf
-#   ./scripts/setup-terraform-lambda.sh worker true        # Create lambda-worker.tf
-#   ./scripts/setup-terraform-lambda.sh                    # Create lambda-api.tf (default)
+#   ./scripts/setup-terraform-lambda.sh api false                           # Create lambda-api.tf
+#   ./scripts/setup-terraform-lambda.sh worker true                         # Create lambda-worker.tf
+#   ./scripts/setup-terraform-lambda.sh processor true "vector-embeddings"  # Use specific bucket
+#   ./scripts/setup-terraform-lambda.sh search true "vector-embeddings,vector-cache"  # Multiple buckets
+#   ./scripts/setup-terraform-lambda.sh                                     # Create lambda-api.tf (default)
 # =============================================================================
 
 set -e
@@ -21,6 +23,7 @@ set -e
 # Parse command line arguments
 SERVICE_NAME="${1:-api}"        # Default: 'api' for backward compatibility
 ENABLE_API_KEY="${2:-true}"     # Default: enabled
+S3VECTOR_BUCKETS="${3:-vector-embeddings}"  # Default: vector-embeddings
 
 TERRAFORM_DIR="terraform"
 BOOTSTRAP_DIR="bootstrap"
@@ -75,17 +78,20 @@ if [ ! -f "$BOOTSTRAP_DIR/terraform.tfvars" ]; then
   echo ""
   PROJECT_NAME="<YOUR-PROJECT>"
   AWS_REGION="us-east-1"
+  ENABLE_S3VECTOR="false"
 else
   # Read configuration from bootstrap
   PROJECT_NAME=$(grep '^project_name' "$BOOTSTRAP_DIR/terraform.tfvars" | cut -d'=' -f2 | cut -d'#' -f1 | tr -d ' "')
   AWS_REGION=$(grep '^aws_region' "$BOOTSTRAP_DIR/terraform.tfvars" | cut -d'=' -f2 | cut -d'#' -f1 | tr -d ' "')
   GITHUB_ORG=$(grep '^github_org' "$BOOTSTRAP_DIR/terraform.tfvars" | cut -d'=' -f2 | cut -d'#' -f1 | tr -d ' "')
   GITHUB_REPO=$(grep '^github_repo' "$BOOTSTRAP_DIR/terraform.tfvars" | cut -d'=' -f2 | cut -d'#' -f1 | tr -d ' "')
+  ENABLE_S3VECTOR=$(grep '^enable_s3vector' "$BOOTSTRAP_DIR/terraform.tfvars" | cut -d'=' -f2 | cut -d'#' -f1 | tr -d ' "')
 fi
 
 # Set defaults if not found
 : ${GITHUB_ORG:="<YOUR-ORG>"}
 : ${GITHUB_REPO:="<YOUR-REPO>"}
+: ${ENABLE_S3VECTOR:="false"}
 
 echo "📋 Configuration:"
 echo "   Service: $SERVICE_NAME"
@@ -93,6 +99,10 @@ echo "   Project: $PROJECT_NAME"
 echo "   Region: $AWS_REGION"
 echo "   GitHub: $GITHUB_ORG/$GITHUB_REPO"
 echo "   API Key: $ENABLE_API_KEY"
+echo "   S3 Vector: $ENABLE_S3VECTOR"
+if [ "$ENABLE_S3VECTOR" = "true" ]; then
+  echo "   S3 Buckets: $S3VECTOR_BUCKETS"
+fi
 echo ""
 
 # =============================================================================
@@ -231,23 +241,83 @@ if [ -f "$LAMBDA_TF_FILE" ]; then
 fi
 
 echo "📝 Creating ${LAMBDA_TF_FILE}..."
-cat > "$LAMBDA_TF_FILE" <<'TEMPLATE_EOF'
+
+# Generate S3 vector section if enabled
+if [ "$ENABLE_S3VECTOR" = "true" ]; then
+  S3VECTOR_DATA_BLOCK='
+# Get bootstrap outputs for S3 vector resources
+data "terraform_remote_state" "bootstrap" {
+  backend = "s3"
+  config = {
+    bucket = "${var.project_name}-terraform-state-${data.aws_caller_identity.current.account_id}"
+    key    = "bootstrap/terraform.tfstate"
+    region = var.aws_region
+  }
+}
+'
+  S3VECTOR_POLICY_ATTACHMENTS='
+# S3 Vector Service Access Policy
+resource "aws_iam_role_policy_attachment" "SERVICE_NAME_PLACEHOLDER_s3_vectors" {
+  role       = data.aws_iam_role.lambda_execution_SERVICE_NAME_PLACEHOLDER.name
+  policy_arn = data.terraform_remote_state.bootstrap.outputs.s3_vector_service_policy_arn
+}
+
+# Bedrock Invocation Policy
+resource "aws_iam_role_policy_attachment" "SERVICE_NAME_PLACEHOLDER_bedrock" {
+  role       = data.aws_iam_role.lambda_execution_SERVICE_NAME_PLACEHOLDER.name
+  policy_arn = data.terraform_remote_state.bootstrap.outputs.bedrock_invocation_policy_arn
+}
+'
+
+  # Generate environment variables for S3 buckets
+  # Split comma-separated list and create env var for each bucket
+  S3VECTOR_ENV_VARS='
+      # S3 Vector Storage
+      BEDROCK_MODEL_ID   = "amazon.titan-embed-text-v2:0"'
+
+  # Convert comma-separated list to array
+  IFS=',' read -ra BUCKET_ARRAY <<< "$S3VECTOR_BUCKETS"
+
+  # If only one bucket, use VECTOR_BUCKET_NAME (backward compatible)
+  if [ ${#BUCKET_ARRAY[@]} -eq 1 ]; then
+    S3VECTOR_ENV_VARS="${S3VECTOR_ENV_VARS}
+      VECTOR_BUCKET_NAME = data.terraform_remote_state.bootstrap.outputs.s3_vector_bucket_ids[\"${BUCKET_ARRAY[0]}\"]"
+  else
+    # Multiple buckets: create numbered variables
+    for i in "${!BUCKET_ARRAY[@]}"; do
+      bucket="${BUCKET_ARRAY[$i]}"
+      # Trim whitespace
+      bucket=$(echo "$bucket" | xargs)
+      # Create environment variable name from bucket suffix
+      # e.g., "vector-embeddings" -> "VECTOR_EMBEDDINGS_BUCKET"
+      var_name=$(echo "$bucket" | tr '[:lower:]' '[:upper:]' | tr '-' '_')
+      S3VECTOR_ENV_VARS="${S3VECTOR_ENV_VARS}
+      ${var_name}_BUCKET = data.terraform_remote_state.bootstrap.outputs.s3_vector_bucket_ids[\"${bucket}\"]"
+    done
+  fi
+
+  S3VECTOR_ENV_VARS="${S3VECTOR_ENV_VARS}
+"
+else
+  S3VECTOR_DATA_BLOCK=""
+  S3VECTOR_POLICY_ATTACHMENTS=""
+  S3VECTOR_ENV_VARS=""
+fi
+
+cat > "$LAMBDA_TF_FILE" <<TEMPLATE_EOF
 # =============================================================================
 # Lambda Service Configuration: SERVICE_NAME_PLACEHOLDER
 # =============================================================================
 # Generated by scripts/setup-terraform-lambda.sh
 # This file defines the Lambda function for the SERVICE_NAME_PLACEHOLDER service
 # =============================================================================
-
+${S3VECTOR_DATA_BLOCK}
 # Service-specific configuration
 # Edit these values to customize this Lambda function
 locals {
   SERVICE_NAME_PLACEHOLDER_config = {
     memory_size = 512
     timeout     = 30
-    # Add service-specific environment variables here
-    # bedrock_model_id   = "amazon.titan-embed-text-v2:0"
-    # vector_bucket_name = "${var.project_name}-${var.environment}-vectors"
   }
 
   # Service API Key configuration
@@ -263,14 +333,14 @@ locals {
 
 # Lambda execution role (from bootstrap)
 data "aws_iam_role" "lambda_execution_SERVICE_NAME_PLACEHOLDER" {
-  name = "${var.project_name}-lambda-execution-role"
+  name = "\${var.project_name}-lambda-execution-role"
 }
-
+${S3VECTOR_POLICY_ATTACHMENTS}
 # IAM policy for Secrets Manager access (API key retrieval)
 resource "aws_iam_role_policy" "SERVICE_NAME_PLACEHOLDER_secrets_access" {
   count = var.enable_service_api_keys ? 1 : 0
 
-  name = "${var.project_name}-${var.environment}-SERVICE_NAME_PLACEHOLDER-secrets"
+  name = "\${var.project_name}-\${var.environment}-SERVICE_NAME_PLACEHOLDER-secrets"
   role = data.aws_iam_role.lambda_execution_SERVICE_NAME_PLACEHOLDER.name
 
   policy = jsonencode({
@@ -279,7 +349,7 @@ resource "aws_iam_role_policy" "SERVICE_NAME_PLACEHOLDER_secrets_access" {
       Effect = "Allow"
       Action = ["secretsmanager:GetSecretValue"]
       Resource = [
-        "arn:aws:secretsmanager:${var.aws_region}:*:secret:${var.project_name}/${var.environment}/SERVICE_NAME_PLACEHOLDER/api-key-*"
+        "arn:aws:secretsmanager:\${var.aws_region}:*:secret:\${var.project_name}/\${var.environment}/SERVICE_NAME_PLACEHOLDER/api-key-*"
       ]
     }]
   })
@@ -287,13 +357,13 @@ resource "aws_iam_role_policy" "SERVICE_NAME_PLACEHOLDER_secrets_access" {
 
 # Lambda function using container image
 resource "aws_lambda_function" "SERVICE_NAME_PLACEHOLDER" {
-  function_name = "${var.project_name}-${var.environment}-SERVICE_NAME_PLACEHOLDER"
+  function_name = "\${var.project_name}-\${var.environment}-SERVICE_NAME_PLACEHOLDER"
   role          = data.aws_iam_role.lambda_execution_SERVICE_NAME_PLACEHOLDER.arn
 
   # Container image configuration
   package_type = "Image"
   # Using hierarchical tag format: SERVICE_NAME_PLACEHOLDER-{environment}-latest
-  image_uri    = "${data.aws_ecr_repository.app.repository_url}:SERVICE_NAME_PLACEHOLDER-${var.environment}-latest"
+  image_uri    = "\${data.aws_ecr_repository.app.repository_url}:SERVICE_NAME_PLACEHOLDER-\${var.environment}-latest"
 
   # Resource configuration - uses local config
   memory_size   = local.SERVICE_NAME_PLACEHOLDER_config.memory_size
@@ -311,9 +381,7 @@ resource "aws_lambda_function" "SERVICE_NAME_PLACEHOLDER" {
       PROJECT_NAME = var.project_name
       SERVICE_NAME = "SERVICE_NAME_PLACEHOLDER"
       LOG_LEVEL    = var.environment == "prod" ? "INFO" : "DEBUG"
-
-      # Add custom environment variables from local config
-      # Uncomment and add as needed based on local config
+${S3VECTOR_ENV_VARS}
     }
   }
 
@@ -330,7 +398,7 @@ resource "aws_lambda_function" "SERVICE_NAME_PLACEHOLDER" {
   }
 
   tags = {
-    Name        = "${var.project_name}-${var.environment}-SERVICE_NAME_PLACEHOLDER"
+    Name        = "\${var.project_name}-\${var.environment}-SERVICE_NAME_PLACEHOLDER"
     Service     = "SERVICE_NAME_PLACEHOLDER"
     Description = "SERVICE_NAME_PLACEHOLDER Lambda function with ADOT observability"
   }
@@ -338,11 +406,11 @@ resource "aws_lambda_function" "SERVICE_NAME_PLACEHOLDER" {
 
 # CloudWatch Log Group for Lambda
 resource "aws_cloudwatch_log_group" "lambda_SERVICE_NAME_PLACEHOLDER" {
-  name              = "/aws/lambda/${var.project_name}-${var.environment}-SERVICE_NAME_PLACEHOLDER"
+  name              = "/aws/lambda/\${var.project_name}-\${var.environment}-SERVICE_NAME_PLACEHOLDER"
   retention_in_days = var.environment == "prod" ? 30 : 7
 
   tags = {
-    Name    = "${var.project_name}-${var.environment}-SERVICE_NAME_PLACEHOLDER-logs"
+    Name    = "\${var.project_name}-\${var.environment}-SERVICE_NAME_PLACEHOLDER-logs"
     Service = "SERVICE_NAME_PLACEHOLDER"
   }
 }
@@ -573,3 +641,28 @@ echo "   - Enable with: enable_service_api_keys = true in tfvars"
 echo "   - Get API key: terraform output -json service_api_key_values | jq -r '.${SERVICE_NAME}'"
 echo "   - See docs/API-KEYS-QUICKSTART.md for usage in code"
 echo ""
+
+if [ "$ENABLE_S3VECTOR" = "true" ]; then
+  echo "🪣 S3 Vector Storage:"
+  echo "   ✅ S3 vector policies automatically attached"
+  echo "   ✅ Bedrock invocation policy automatically attached"
+  echo "   ✅ Environment variables configured:"
+  echo "      - BEDROCK_MODEL_ID: amazon.titan-embed-text-v2:0"
+
+  # Display bucket environment variables
+  IFS=',' read -ra BUCKET_ARRAY <<< "$S3VECTOR_BUCKETS"
+  if [ ${#BUCKET_ARRAY[@]} -eq 1 ]; then
+    echo "      - VECTOR_BUCKET_NAME: {project}-${BUCKET_ARRAY[0]}"
+  else
+    for bucket in "${BUCKET_ARRAY[@]}"; do
+      bucket=$(echo "$bucket" | xargs)
+      var_name=$(echo "$bucket" | tr '[:lower:]' '[:upper:]' | tr '-' '_')
+      echo "      - ${var_name}_BUCKET: {project}-${bucket}"
+    done
+  fi
+
+  echo "   💡 To add embedding endpoints to your service:"
+  echo "      - See docs/S3-VECTOR-STORAGE.md for code examples"
+  echo "      - Example: backend/s3vector/main.py"
+  echo ""
+fi

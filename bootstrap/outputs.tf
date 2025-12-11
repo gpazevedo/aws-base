@@ -233,17 +233,33 @@ output "codeartifact_read_policy_arn" {
 
 output "s3_vector_service_policy_arn" {
   description = "ARN of S3 vector service access policy (attach to Lambda/AppRunner roles)"
-  value       = var.enable_lambda || var.enable_apprunner ? aws_iam_policy.s3_vector_service_access[0].arn : null
+  value       = var.enable_s3vector ? aws_iam_policy.s3_vector_service_access[0].arn : null
 }
 
 output "s3_vector_management_policy_arn" {
   description = "ARN of S3 vector management policy (attached to GitHub Actions roles)"
-  value       = var.enable_lambda || var.enable_apprunner ? aws_iam_policy.s3_vector_management[0].arn : null
+  value       = var.enable_s3vector ? aws_iam_policy.s3_vector_management[0].arn : null
 }
 
 output "bedrock_invocation_policy_arn" {
   description = "ARN of Bedrock model invocation policy (attach to Lambda/AppRunner roles)"
-  value       = var.enable_lambda || var.enable_apprunner ? aws_iam_policy.bedrock_invocation[0].arn : null
+  value       = var.enable_s3vector ? aws_iam_policy.bedrock_invocation[0].arn : null
+}
+
+# S3 Vector Buckets
+output "s3_vector_bucket_ids" {
+  description = "Map of bucket IDs created (suffix => bucket_id)"
+  value       = var.enable_s3vector ? { for k, v in aws_s3_bucket.vector : k => v.id } : {}
+}
+
+output "s3_vector_bucket_arns" {
+  description = "Map of bucket ARNs created (suffix => bucket_arn)"
+  value       = var.enable_s3vector ? { for k, v in aws_s3_bucket.vector : k => v.arn } : {}
+}
+
+output "s3_vector_bucket_names" {
+  description = "Map of bucket names created (suffix => bucket_name)"
+  value       = var.enable_s3vector ? { for k, v in aws_s3_bucket.vector : k => v.bucket } : {}
 }
 
 # =============================================================================
@@ -266,6 +282,7 @@ output "summary" {
       ecr          = local.enable_ecr
       test_env     = var.enable_test_environment
       codeartifact = var.enable_codeartifact
+      s3vector     = var.enable_s3vector
     }
 
     codeartifact = var.enable_codeartifact ? {
@@ -322,6 +339,7 @@ output "next_steps" {
   - ECR: ${local.enable_ecr}
   - VPC: ${local.create_vpc}
   - CodeArtifact: ${var.enable_codeartifact}
+  - S3 Vector Storage: ${var.enable_s3vector}
 ${var.enable_codeartifact ? "\n  CodeArtifact Configuration:\n  - Domain: ${aws_codeartifact_domain.main[0].domain}\n  - Repository: ${aws_codeartifact_repository.python[0].repository}\n  - Configure locally: source <(./scripts/configure-codeartifact.sh)\n" : ""}
 
   EOT

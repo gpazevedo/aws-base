@@ -54,7 +54,6 @@ fi
 
 BACKEND_DIR="backend"
 SERVICE_DIR="$BACKEND_DIR/$SERVICE_NAME"
-SHARED_DIR="$BACKEND_DIR/shared"
 SCRIPTS_DIR="scripts"
 
 echo "🚀 Creating new App Runner service: $SERVICE_NAME"
@@ -75,13 +74,6 @@ echo "🔍 Checking prerequisites..."
 # Check if service already exists
 if [ -d "$SERVICE_DIR" ]; then
   echo "❌ Error: Service directory already exists: $SERVICE_DIR"
-  exit 1
-fi
-
-# Check if shared library exists
-if [ ! -d "$SHARED_DIR" ]; then
-  echo "❌ Error: Shared library not found at: $SHARED_DIR"
-  echo "   Please ensure the shared library is set up first"
   exit 1
 fi
 
@@ -108,9 +100,42 @@ cd "$SERVICE_DIR"
 echo "📦 Initializing uv project..."
 uv init --no-workspace --name "$SERVICE_NAME"
 
-# Add shared library as editable dependency
-echo "📚 Adding shared library..."
-uv add --editable ../shared
+# Add agsys-common library from CodeArtifact
+echo "📚 Adding agsys-common library from CodeArtifact..."
+
+# Check if CodeArtifact is configured
+if [ -z "${UV_INDEX_URL:-}" ]; then
+    echo "⚠️  CodeArtifact not configured. Configuring now..."
+    cd ../..  # Return to project root
+    if [ -f "./scripts/configure-codeartifact.sh" ]; then
+        # Source the script to set UV_INDEX_URL and UV_EXTRA_INDEX_URL
+        eval "$(./scripts/configure-codeartifact.sh)"
+    else
+        echo "❌ Error: CodeArtifact configuration script not found"
+        echo "   Please run: ./scripts/configure-codeartifact.sh"
+        exit 1
+    fi
+    cd "$SERVICE_DIR"  # Return to service directory
+fi
+
+# Add agsys-common from CodeArtifact with version constraint
+# Note: We manually edit pyproject.toml to avoid uv creating a lock file with stale hash
+echo "📚 Adding agsys-common to pyproject.toml..."
+
+# Replace empty dependencies = [] with dependencies containing agsys-common
+sed -i 's/^dependencies = \[\]$/dependencies = [\n    "agsys-common>=0.0.1,<1.0.0",\n]/' pyproject.toml
+
+# Clear uv cache for agsys-common to force fresh download
+echo "🔄 Clearing uv cache for agsys-common..."
+uv cache clean agsys-common || true
+
+# Generate lock file with correct hash from CodeArtifact
+echo "🔄 Generating lock file with correct hash..."
+uv lock
+
+# Now sync/install with the corrected lock file
+echo "📦 Installing dependencies..."
+uv sync
 
 # Add common dependencies
 echo "📦 Adding dependencies..."
@@ -148,7 +173,7 @@ from contextlib import asynccontextmanager
 import httpx
 from fastapi import FastAPI, HTTPException, Query
 
-from shared import (
+from common import (
     configure_logging,
     get_logger,
     LoggingMiddleware,
@@ -244,7 +269,7 @@ app.add_middleware(LoggingMiddleware)
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
     """Simple health check endpoint"""
-    return await health_check_simple(SERVICE_VERSION, START_TIME)
+    return await health_check_simple(SERVICE_NAME, SERVICE_VERSION, START_TIME)
 
 
 @app.get("/status", response_model=ServiceInfo)
@@ -531,15 +556,6 @@ python_functions = test_*
 addopts = -v --strict-markers --cov=. --cov-report=term-missing
 EOF
 
-# Update pyproject.toml to add uv.sources configuration if not already present
-if ! grep -q "\[tool.uv.sources\]" pyproject.toml; then
-  cat >> pyproject.toml <<'EOF'
-
-[tool.uv.sources]
-shared = { path = "../shared", editable = true }
-EOF
-fi
-
 # Create README.md
 cat > README.md <<EOF
 # $SERVICE_NAME Service
@@ -592,32 +608,33 @@ Required:
 ## Deployment
 
 \`\`\`bash
-# Build Docker image
-docker build -f Dockerfile.apprunner -t $SERVICE_NAME:latest .
-
-# Or use the docker-push script
-cd ../..
+# Build and push Docker image
+# The script automatically handles CodeArtifact authentication
 ./scripts/docker-push.sh dev $SERVICE_NAME Dockerfile.apprunner
 
 # Deploy infrastructure
 make app-init-dev app-apply-dev
 \`\`\`
 
-## Using Shared Library
+**Note:** The build script automatically detects and configures CodeArtifact authentication when needed.
 
-This service uses the shared library for:
+## Using agsys-common Library
+
+This service uses the agsys-common library from CodeArtifact for:
 - ✅ Structured logging (\`configure_logging\`, \`get_logger\`)
 - ✅ OpenTelemetry tracing (\`configure_tracing\`)
 - ✅ Request logging middleware (\`LoggingMiddleware\`)
 - ✅ Health check utilities (\`health_check_simple\`)
 - ✅ Inter-service API calls (\`ServiceAPIClient\`)
 
+The library is installed from AWS CodeArtifact during build.
+
 See [docs/SHARED-LIBRARY.md](../../docs/SHARED-LIBRARY.md) for details.
 
 ## Inter-Service Communication
 
 \`\`\`python
-from shared import ServiceAPIClient, get_service_url
+from common import ServiceAPIClient, get_service_url
 
 async with ServiceAPIClient(service_name="$SERVICE_NAME") as client:
     url = get_service_url("other-service")
@@ -684,15 +701,14 @@ WORKDIR /app
 ENV UV_SYSTEM_PYTHON=1
 ENV UV_COMPILE_BYTECODE=1
 
-# Copy shared library first (for layer caching)
-COPY backend/shared/ ./shared/
-
 # Copy service files
 COPY backend/SERVICE_NAME_PLACEHOLDER/pyproject.toml backend/SERVICE_NAME_PLACEHOLDER/uv.lock* ./
 
-# Fix the shared library path in pyproject.toml and uv.lock for Docker environment
-RUN sed -i 's|path = "../shared"|path = "./shared"|g' pyproject.toml && \
-    sed -i 's|editable = "../shared"|editable = "./shared"|g' uv.lock
+# CodeArtifact authentication (passed at build time)
+ARG CODEARTIFACT_INDEX_URL
+ARG UV_EXTRA_INDEX_URL=https://pypi.org/simple/
+ENV UV_INDEX_URL=${CODEARTIFACT_INDEX_URL}
+ENV UV_EXTRA_INDEX_URL=${UV_EXTRA_INDEX_URL}
 
 # Install dependencies to system Python using uv pip
 # Export dependencies from lock file and install to system site-packages
@@ -711,10 +727,10 @@ RUN uv pip install --no-cache \
 # This detects installed libraries and installs appropriate instrumentors
 RUN opentelemetry-bootstrap --action=install
 
-# Copy application code
-COPY backend/SERVICE_NAME_PLACEHOLDER/main.py ./
+# Copy application code (all .py files except tests)
+COPY backend/SERVICE_NAME_PLACEHOLDER/*.py ./
 
-# Remove test files if any
+# Remove test files
 RUN rm -f test_*.py
 
 # App Runner expects port 8080
@@ -779,7 +795,7 @@ echo "   $SERVICE_DIR/tests/test_main.py"
 echo "   $SERVICE_DIR/pytest.ini"
 echo ""
 echo "📦 Dependencies installed:"
-echo "   ✅ shared library (editable)"
+echo "   ✅ agsys-common>=0.0.1,<1.0.0 (from CodeArtifact)"
 echo "   ✅ fastapi[standard], uvicorn[standard]"
 echo "   ✅ boto3, pydantic, httpx, structlog"
 echo "   ✅ OpenTelemetry packages"
@@ -796,16 +812,11 @@ echo "2. Run tests:"
 echo "   cd $SERVICE_DIR"
 echo "   uv run pytest"
 echo ""
-echo "3. Build Docker image:"
-echo "   cd $SERVICE_DIR"
-echo "   docker build -f Dockerfile.apprunner -t $SERVICE_NAME:latest ."
-echo ""
-echo "4. Deploy to AWS:"
-echo "   # From project root"
+echo "3. Build and deploy:"
 echo "   ./scripts/docker-push.sh dev $SERVICE_NAME Dockerfile.apprunner"
 echo "   make app-init-dev app-apply-dev"
 echo ""
-echo "5. Customize your service:"
+echo "4. Customize your service:"
 echo "   - Add business logic to $SERVICE_DIR/main.py"
 echo "   - Add tests to $SERVICE_DIR/tests/"
 echo "   - Update $SERVICE_DIR/README.md"

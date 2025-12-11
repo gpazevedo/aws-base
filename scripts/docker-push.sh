@@ -368,6 +368,57 @@ echo -e "${GREEN}✅ Successfully logged into ECR${NC}"
 echo ""
 
 # =============================================================================
+# Configure CodeArtifact (if needed by Dockerfile)
+# =============================================================================
+# Check if the Dockerfile uses CodeArtifact (has CODEARTIFACT_INDEX_URL arg)
+USES_CODEARTIFACT=false
+if grep -q "ARG CODEARTIFACT_INDEX_URL" "backend/${SERVICE}/${DOCKERFILE}"; then
+  USES_CODEARTIFACT=true
+  echo -e "${BLUE}🔐 Configuring CodeArtifact authentication...${NC}"
+
+  DOMAIN="${CODEARTIFACT_DOMAIN:-agsys}"
+  # Use agsys-common as the default repository (shared across projects)
+  # Can be overridden with CODEARTIFACT_REPOSITORY environment variable
+  REPOSITORY="${CODEARTIFACT_REPOSITORY:-${DOMAIN}-common}"
+
+  # Get CodeArtifact token
+  CODEARTIFACT_TOKEN=$(aws codeartifact get-authorization-token \
+    --domain "$DOMAIN" \
+    --domain-owner "$AWS_ACCOUNT_ID" \
+    --query authorizationToken \
+    --output text \
+    --region "$AWS_REGION" 2>/dev/null || echo "")
+
+  if [ -z "$CODEARTIFACT_TOKEN" ]; then
+    echo -e "${YELLOW}⚠️  CodeArtifact authentication failed. Domain '$DOMAIN' may not exist.${NC}"
+    echo "   If this service doesn't use agsys-common, this is OK."
+    USES_CODEARTIFACT=false
+  else
+    # Get repository endpoint
+    CODEARTIFACT_ENDPOINT=$(aws codeartifact get-repository-endpoint \
+      --domain "$DOMAIN" \
+      --domain-owner "$AWS_ACCOUNT_ID" \
+      --repository "$REPOSITORY" \
+      --format pypi \
+      --query repositoryEndpoint \
+      --output text \
+      --region "$AWS_REGION" 2>/dev/null || echo "")
+
+    if [ -z "$CODEARTIFACT_ENDPOINT" ]; then
+      echo -e "${RED}❌ Error: Failed to get CodeArtifact endpoint${NC}"
+      echo "   Repository: $REPOSITORY"
+      exit 1
+    fi
+
+    CODEARTIFACT_INDEX_URL="https://aws:${CODEARTIFACT_TOKEN}@${CODEARTIFACT_ENDPOINT#https://}simple/"
+    echo -e "${GREEN}✅ CodeArtifact configured${NC}"
+    echo "   Domain: ${DOMAIN}"
+    echo "   Repository: ${REPOSITORY}"
+    echo ""
+  fi
+fi
+
+# =============================================================================
 # Build Docker Image
 # =============================================================================
 echo -e "${BLUE}🏗️  Building Docker image for ${TARGET_ARCH}...${NC}"
@@ -386,7 +437,16 @@ echo "   Service folder: backend/${SERVICE}"
 echo "   Dockerfile: backend/${SERVICE}/${DOCKERFILE}"
 echo "   Target architecture: ${TARGET_ARCH}"
 echo "   Primary tag: ${PRIMARY_TAG}"
+if [ "$USES_CODEARTIFACT" = true ]; then
+  echo "   CodeArtifact: enabled"
+fi
 echo ""
+
+# Build command with optional CodeArtifact args
+BUILD_ARGS=""
+if [ "$USES_CODEARTIFACT" = true ]; then
+  BUILD_ARGS="--build-arg CODEARTIFACT_INDEX_URL=${CODEARTIFACT_INDEX_URL} --build-arg UV_EXTRA_INDEX_URL=https://pypi.org/simple/"
+fi
 
 # Use buildx for reliable cross-platform builds
 docker buildx build \
@@ -395,6 +455,7 @@ docker buildx build \
   -t "${ECR_URL}:${PRIMARY_TAG}" \
   -t "${ECR_URL}:${SERVICE_LATEST_TAG}" \
   -t "${ECR_URL}:${ENV_LATEST_TAG}" \
+  ${BUILD_ARGS} \
   --load \
   .
 

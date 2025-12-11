@@ -1,5 +1,5 @@
 # =============================================================================
-# Lambda Container Image for api Service
+# Lambda Container Image for vector Service
 # =============================================================================
 # Multi-architecture build for AWS Lambda
 # Supports: linux/amd64, linux/arm64
@@ -15,7 +15,7 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 WORKDIR ${LAMBDA_TASK_ROOT}
 
 # Copy service files
-COPY backend/api/pyproject.toml backend/api/uv.lock* ./
+COPY backend/vector/pyproject.toml backend/vector/uv.lock* ./
 
 # CodeArtifact authentication (passed at build time)
 ARG CODEARTIFACT_INDEX_URL
@@ -29,7 +29,7 @@ RUN uv export --no-dev --frozen > requirements.txt && \
     uv pip install --system --no-cache -r requirements.txt
 
 # Copy application code (all .py files except tests)
-COPY backend/api/*.py ./
+COPY backend/vector/*.py ./
 
 # Remove test files
 RUN rm -f test_*.py

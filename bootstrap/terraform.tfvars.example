@@ -65,6 +65,19 @@ enable_codeartifact = false  # Set to true if you need to host internal packages
 codeartifact_domain = "agsys"
 
 # =============================================================================
+# S3 Vector Storage Configuration
+# =============================================================================
+
+# Enable S3 vector storage infrastructure and IAM policies
+# Set to true if you need to store vector embeddings or use Bedrock
+enable_s3vector = false
+
+# List of bucket suffixes to create for vector storage
+# Example: ["vector-embeddings", "vector-cache"]
+# This will create: {project}-vector-embeddings, {project}-vector-cache
+bucket_suffixes = ["vector-embeddings"]
+
+# =============================================================================
 # ECR Configuration (Container Registry)
 # =============================================================================
 # ECR is automatically enabled if you use Lambda containers, App Runner

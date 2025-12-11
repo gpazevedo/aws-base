@@ -8,18 +8,25 @@
 #
 # Prerequisites: Run ./scripts/setup-terraform-base.sh first
 #
-# Usage: ./scripts/setup-terraform-apprunner.sh [SERVICE_NAME]
+# Usage: ./scripts/setup-terraform-apprunner.sh [SERVICE_NAME] [S3VECTOR_BUCKETS]
+#
+# Arguments:
+#   SERVICE_NAME      - Name of the service (default: runner)
+#   S3VECTOR_BUCKETS  - Comma-separated list of S3 vector bucket suffixes
+#                       (default: vector-embeddings)
+#                       Only used when enable_s3vector=true in bootstrap
 #
 # Examples:
-#   ./scripts/setup-terraform-apprunner.sh web           # Create apprunner-web.tf
-#   ./scripts/setup-terraform-apprunner.sh admin         # Create apprunner-admin.tf
-#   ./scripts/setup-terraform-apprunner.sh               # Create apprunner-runner.tf (default)
+#   ./scripts/setup-terraform-apprunner.sh web
+#   ./scripts/setup-terraform-apprunner.sh admin "vector-embeddings,vector-cache"
+#   ./scripts/setup-terraform-apprunner.sh runner
 # =============================================================================
 
 set -e
 
 # Parse command line arguments
 SERVICE_NAME="${1:-runner}"  # Default: 'runner' for backward compatibility
+S3VECTOR_BUCKETS="${2:-vector-embeddings}"  # Default: 'vector-embeddings'
 
 TERRAFORM_DIR="terraform"
 BOOTSTRAP_DIR="bootstrap"
@@ -80,6 +87,7 @@ else
   AWS_REGION=$(grep '^aws_region' "$BOOTSTRAP_DIR/terraform.tfvars" | cut -d'=' -f2 | cut -d'#' -f1 | tr -d ' "')
   GITHUB_ORG=$(grep '^github_org' "$BOOTSTRAP_DIR/terraform.tfvars" | cut -d'=' -f2 | cut -d'#' -f1 | tr -d ' "')
   GITHUB_REPO=$(grep '^github_repo' "$BOOTSTRAP_DIR/terraform.tfvars" | cut -d'=' -f2 | cut -d'#' -f1 | tr -d ' "')
+  ENABLE_S3VECTOR=$(grep '^enable_s3vector' "$BOOTSTRAP_DIR/terraform.tfvars" | cut -d'=' -f2 | cut -d'#' -f1 | tr -d ' "')
 fi
 
 # Set defaults if not found
@@ -91,6 +99,10 @@ echo "   Service: $SERVICE_NAME"
 echo "   Project: $PROJECT_NAME"
 echo "   Region: $AWS_REGION"
 echo "   GitHub: $GITHUB_ORG/$GITHUB_REPO"
+if [ "$ENABLE_S3VECTOR" = "true" ]; then
+  echo "   S3 Vector: Enabled"
+  echo "   Buckets: $S3VECTOR_BUCKETS"
+fi
 echo ""
 
 # =============================================================================
@@ -112,7 +124,7 @@ if [ ! -f "$APPRUNNER_VARS_FILE" ]; then
 variable "apprunner_cpu" {
   description = "Default App Runner CPU units (256, 512, 1024, 2048, 4096)"
   type        = string
-  default     = "1024"
+  default     = "256"
 
   validation {
     condition     = contains(["256", "512", "1024", "2048", "4096"], var.apprunner_cpu)
@@ -123,7 +135,7 @@ variable "apprunner_cpu" {
 variable "apprunner_memory" {
   description = "Default App Runner memory in MB (512, 1024, 2048, 3072, 4096, 6144, 8192, 10240, 12288)"
   type        = string
-  default     = "2048"
+  default     = "512"
 
   validation {
     condition     = contains(["512", "1024", "2048", "3072", "4096", "6144", "8192", "10240", "12288"], var.apprunner_memory)
@@ -140,7 +152,7 @@ variable "apprunner_port" {
 variable "apprunner_min_instances" {
   description = "Default minimum number of App Runner instances"
   type        = number
-  default     = 1
+  default     = 0     # 0 means scale to zero (cold starts allowed)
 }
 
 variable "apprunner_max_instances" {
@@ -298,6 +310,78 @@ EOF
 done
 
 # =============================================================================
+# Generate S3 Vector Configuration (if enabled)
+# =============================================================================
+S3VECTOR_DATA_BLOCK=""
+S3VECTOR_POLICY_ATTACHMENTS=""
+S3VECTOR_ENV_VARS=""
+
+if [ "$ENABLE_S3VECTOR" = "true" ]; then
+  echo "📦 S3 Vector storage enabled - generating configuration..."
+
+  # Parse bucket suffixes into array
+  IFS=',' read -ra BUCKET_ARRAY <<< "$S3VECTOR_BUCKETS"
+
+  # Generate data source for bootstrap remote state
+  S3VECTOR_DATA_BLOCK="# =============================================================================
+# S3 Vector Storage Configuration (Bootstrap Remote State)
+# =============================================================================
+
+data \"terraform_remote_state\" \"bootstrap\" {
+  backend = \"s3\"
+  config = {
+    bucket = \"\${var.project_name}-terraform-state-\${data.aws_caller_identity.current.account_id}\"
+    key    = \"bootstrap/terraform.tfstate\"
+    region = var.aws_region
+  }
+}
+
+data \"aws_caller_identity\" \"current\" {}
+
+"
+
+  # Generate policy attachments
+  S3VECTOR_POLICY_ATTACHMENTS="
+# Attach S3 Vector and Bedrock policies to AppRunner instance role
+resource \"aws_iam_role_policy_attachment\" \"${SERVICE_NAME}_s3_vectors\" {
+  role       = data.aws_iam_role.apprunner_instance_${SERVICE_NAME}.name
+  policy_arn = data.terraform_remote_state.bootstrap.outputs.s3_vector_service_policy_arn
+}
+
+resource \"aws_iam_role_policy_attachment\" \"${SERVICE_NAME}_bedrock\" {
+  role       = data.aws_iam_role.apprunner_instance_${SERVICE_NAME}.name
+  policy_arn = data.terraform_remote_state.bootstrap.outputs.bedrock_invocation_policy_arn
+}
+
+"
+
+  # Generate environment variables based on number of buckets
+  if [ ${#BUCKET_ARRAY[@]} -eq 1 ]; then
+    # Single bucket - use VECTOR_BUCKET_NAME for backward compatibility
+    S3VECTOR_ENV_VARS="
+            # S3 Vector Storage Configuration
+            VECTOR_BUCKET_NAME = data.terraform_remote_state.bootstrap.outputs.s3_vector_bucket_ids[\"${BUCKET_ARRAY[0]}\"]
+            BEDROCK_MODEL_ID   = \"amazon.titan-embed-text-v2:0\"
+"
+  else
+    # Multiple buckets - use {SUFFIX_UPPERCASE}_BUCKET naming
+    S3VECTOR_ENV_VARS="
+            # S3 Vector Storage Configuration"
+    for bucket in "${BUCKET_ARRAY[@]}"; do
+      # Convert bucket suffix to uppercase with underscores (e.g., "vector-embeddings" -> "VECTOR_EMBEDDINGS")
+      BUCKET_VAR_NAME=$(echo "${bucket}" | tr '[:lower:]' '[:upper:]' | tr '-' '_')
+      S3VECTOR_ENV_VARS="${S3VECTOR_ENV_VARS}
+            ${BUCKET_VAR_NAME}_BUCKET = data.terraform_remote_state.bootstrap.outputs.s3_vector_bucket_ids[\"${bucket}\"]"
+    done
+    S3VECTOR_ENV_VARS="${S3VECTOR_ENV_VARS}
+            BEDROCK_MODEL_ID   = \"amazon.titan-embed-text-v2:0\"
+"
+  fi
+
+  echo "✅ S3 Vector configuration generated for buckets: ${S3VECTOR_BUCKETS}"
+fi
+
+# =============================================================================
 # Create apprunner-{service}.tf
 # =============================================================================
 APPRUNNER_TF_FILE="$TERRAFORM_DIR/apprunner-${SERVICE_NAME}.tf"
@@ -315,18 +399,20 @@ if [ -f "$APPRUNNER_TF_FILE" ]; then
 fi
 
 echo "📝 Creating ${APPRUNNER_TF_FILE}..."
-cat > "$APPRUNNER_TF_FILE" <<'TEMPLATE_EOF'
+cat > "$APPRUNNER_TF_FILE" <<TEMPLATE_EOF
 # =============================================================================
-# App Runner Service Configuration: SERVICE_NAME_PLACEHOLDER
+# App Runner Service Configuration: ${SERVICE_NAME}
 # =============================================================================
 # Generated by scripts/setup-terraform-apprunner.sh
-# This file defines the App Runner service for the SERVICE_NAME_PLACEHOLDER service
+# This file defines the App Runner service for the ${SERVICE_NAME} service
 # =============================================================================
+
+${S3VECTOR_DATA_BLOCK}
 
 # Service-specific configuration
 # Edit these values to customize this App Runner service
 locals {
-  SERVICE_NAME_PLACEHOLDER_config = {
+  ${SERVICE_NAME}_config = {
     cpu             = "1024"
     memory          = "2048"
     port            = 8080
@@ -342,30 +428,32 @@ locals {
 
   # Service API Key configuration
   # Defines the API key for this service when enable_service_api_keys = true
-  SERVICE_NAME_PLACEHOLDER_service_api_key = var.enable_service_api_keys ? {
-    SERVICE_NAME_PLACEHOLDER = {
+  ${SERVICE_NAME}_service_api_key = \${var.enable_service_api_keys} ? {
+    ${SERVICE_NAME} = {
       quota_limit  = 100000
       quota_period = "MONTH"
-      description  = "SERVICE_NAME_PLACEHOLDER service"
+      description  = "${SERVICE_NAME} service"
     }
   } : {}
 }
 
 # Get App Runner IAM roles from bootstrap
-data "aws_iam_role" "apprunner_access_SERVICE_NAME_PLACEHOLDER" {
-  name = "${var.project_name}-apprunner-access"
+data "aws_iam_role" "apprunner_access_${SERVICE_NAME}" {
+  name = "\${var.project_name}-apprunner-access"
 }
 
-data "aws_iam_role" "apprunner_instance_SERVICE_NAME_PLACEHOLDER" {
-  name = "${var.project_name}-apprunner-instance"
+data "aws_iam_role" "apprunner_instance_${SERVICE_NAME}" {
+  name = "\${var.project_name}-apprunner-instance"
 }
+
+${S3VECTOR_POLICY_ATTACHMENTS}
 
 # IAM policy for Secrets Manager access (API key retrieval)
-resource "aws_iam_role_policy" "SERVICE_NAME_PLACEHOLDER_secrets_access" {
-  count = var.enable_service_api_keys ? 1 : 0
+resource "aws_iam_role_policy" "${SERVICE_NAME}_secrets_access" {
+  count = \${var.enable_service_api_keys} ? 1 : 0
 
-  name = "${var.project_name}-${var.environment}-SERVICE_NAME_PLACEHOLDER-secrets"
-  role = data.aws_iam_role.apprunner_instance_SERVICE_NAME_PLACEHOLDER.name
+  name = "\${var.project_name}-\${var.environment}-${SERVICE_NAME}-secrets"
+  role = data.aws_iam_role.apprunner_instance_${SERVICE_NAME}.name
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -373,7 +461,7 @@ resource "aws_iam_role_policy" "SERVICE_NAME_PLACEHOLDER_secrets_access" {
       Effect = "Allow"
       Action = ["secretsmanager:GetSecretValue"]
       Resource = [
-        "arn:aws:secretsmanager:${var.aws_region}:*:secret:${var.project_name}/${var.environment}/SERVICE_NAME_PLACEHOLDER/api-key-*"
+        "arn:aws:secretsmanager:\${var.aws_region}:*:secret:\${var.project_name}/\${var.environment}/${SERVICE_NAME}/api-key-*"
       ]
     }]
   })
@@ -381,38 +469,38 @@ resource "aws_iam_role_policy" "SERVICE_NAME_PLACEHOLDER_secrets_access" {
 
 # Observability Configuration (OpenTelemetry via X-Ray)
 # Note: AWS X-Ray supports OTLP traces from OpenTelemetry
-resource "aws_apprunner_observability_configuration" "SERVICE_NAME_PLACEHOLDER" {
-  observability_configuration_name = "${var.project_name}-${var.environment}-SERVICE_NAME_PLACEHOLDER-obs"
+resource "aws_apprunner_observability_configuration" "${SERVICE_NAME}" {
+  observability_configuration_name = "\${var.project_name}-\${var.environment}-${SERVICE_NAME}-obs"
 
   trace_configuration {
     vendor = "AWSXRAY"
   }
 
   tags = {
-    Name    = "${var.project_name}-${var.environment}-SERVICE_NAME_PLACEHOLDER-obs"
-    Service = "SERVICE_NAME_PLACEHOLDER"
+    Name    = "\${var.project_name}-\${var.environment}-${SERVICE_NAME}-obs"
+    Service = "${SERVICE_NAME}"
   }
 }
 
 # App Runner Service
-resource "aws_apprunner_service" "SERVICE_NAME_PLACEHOLDER" {
-  service_name = "${var.project_name}-${var.environment}-SERVICE_NAME_PLACEHOLDER"
+resource "aws_apprunner_service" "${SERVICE_NAME}" {
+  service_name = "\${var.project_name}-\${var.environment}-${SERVICE_NAME}"
 
   source_configuration {
     image_repository {
-      image_identifier      = "${data.aws_ecr_repository.app.repository_url}:SERVICE_NAME_PLACEHOLDER-${var.environment}-latest"
+      image_identifier      = "\${data.aws_ecr_repository.app.repository_url}:${SERVICE_NAME}-\${var.environment}-latest"
       image_repository_type = "ECR"
 
       image_configuration {
         # Port - uses local config
-        port = local.SERVICE_NAME_PLACEHOLDER_config.port
+        port = local.${SERVICE_NAME}_config.port
 
         runtime_environment_variables = merge(
           {
-            ENVIRONMENT     = var.environment
-            PROJECT_NAME    = var.project_name
-            SERVICE_NAME    = "SERVICE_NAME_PLACEHOLDER"
-            LOG_LEVEL       = var.environment == "prod" ? "INFO" : "DEBUG"
+            ENVIRONMENT     = \${var.environment}
+            PROJECT_NAME    = \${var.project_name}
+            SERVICE_NAME    = "${SERVICE_NAME}"
+            LOG_LEVEL       = \${var.environment} == "prod" ? "INFO" : "DEBUG"
 
             # ADOT/OpenTelemetry Configuration for X-Ray Tracing
             # App Runner manages the OTLP collector on localhost:4317
@@ -421,17 +509,17 @@ resource "aws_apprunner_service" "SERVICE_NAME_PLACEHOLDER" {
             OTEL_PYTHON_ID_GENERATOR              = "xray"
             OTEL_METRICS_EXPORTER                 = "none"  # App Runner only accepts traces, not metrics
             OTEL_EXPORTER_OTLP_ENDPOINT           = "http://localhost:4317"
-            OTEL_RESOURCE_ATTRIBUTES              = "service.name=SERVICE_NAME_PLACEHOLDER"
-            OTEL_SERVICE_NAME                     = "SERVICE_NAME_PLACEHOLDER"
-            OTEL_PYTHON_DISABLED_INSTRUMENTATIONS = "urllib3"  # Reduce noise from low-level HTTP
+            OTEL_RESOURCE_ATTRIBUTES              = "service.name=${SERVICE_NAME}"
+            OTEL_SERVICE_NAME                     = "${SERVICE_NAME}"
+            OTEL_PYTHON_DISABLED_INSTRUMENTATIONS = "urllib3"  # Reduce noise from low-level HTTP${S3VECTOR_ENV_VARS}
           },
-          local.SERVICE_NAME_PLACEHOLDER_config.environment_variables
+          local.${SERVICE_NAME}_config.environment_variables
         )
       }
     }
 
     authentication_configuration {
-      access_role_arn = data.aws_iam_role.apprunner_access_SERVICE_NAME_PLACEHOLDER.arn
+      access_role_arn = data.aws_iam_role.apprunner_access_${SERVICE_NAME}.arn
     }
 
     auto_deployments_enabled = false
@@ -439,78 +527,75 @@ resource "aws_apprunner_service" "SERVICE_NAME_PLACEHOLDER" {
 
   instance_configuration {
     # CPU and Memory - uses local config
-    cpu    = local.SERVICE_NAME_PLACEHOLDER_config.cpu
-    memory = local.SERVICE_NAME_PLACEHOLDER_config.memory
+    cpu    = local.${SERVICE_NAME}_config.cpu
+    memory = local.${SERVICE_NAME}_config.memory
 
-    instance_role_arn = data.aws_iam_role.apprunner_instance_SERVICE_NAME_PLACEHOLDER.arn
+    instance_role_arn = data.aws_iam_role.apprunner_instance_${SERVICE_NAME}.arn
   }
 
   health_check_configuration {
     protocol            = "HTTP"
-    path                = local.SERVICE_NAME_PLACEHOLDER_config.health_check_path
-    interval            = var.health_check_interval
-    timeout             = var.health_check_timeout
-    healthy_threshold   = var.health_check_healthy_threshold
-    unhealthy_threshold = var.health_check_unhealthy_threshold
+    path                = local.${SERVICE_NAME}_config.health_check_path
+    interval            = \${var.health_check_interval}
+    timeout             = \${var.health_check_timeout}
+    healthy_threshold   = \${var.health_check_healthy_threshold}
+    unhealthy_threshold = \${var.health_check_unhealthy_threshold}
   }
 
   # Observability configuration (distributed tracing)
   observability_configuration {
     observability_enabled           = true
-    observability_configuration_arn = aws_apprunner_observability_configuration.SERVICE_NAME_PLACEHOLDER.arn
+    observability_configuration_arn = aws_apprunner_observability_configuration.${SERVICE_NAME}.arn
   }
 
-  auto_scaling_configuration_arn = aws_apprunner_auto_scaling_configuration_version.SERVICE_NAME_PLACEHOLDER.arn
+  auto_scaling_configuration_arn = aws_apprunner_auto_scaling_configuration_version.${SERVICE_NAME}.arn
 
   tags = {
-    Name        = "${var.project_name}-${var.environment}-SERVICE_NAME_PLACEHOLDER"
-    Service     = "SERVICE_NAME_PLACEHOLDER"
-    Description = "SERVICE_NAME_PLACEHOLDER App Runner service"
+    Name        = "\${var.project_name}-\${var.environment}-${SERVICE_NAME}"
+    Service     = "${SERVICE_NAME}"
+    Description = "${SERVICE_NAME} App Runner service"
   }
 }
 
 # Auto Scaling Configuration
-resource "aws_apprunner_auto_scaling_configuration_version" "SERVICE_NAME_PLACEHOLDER" {
-  auto_scaling_configuration_name = "${var.project_name}-${var.environment}-SERVICE_NAME_PLACEHOLDER-as"
+resource "aws_apprunner_auto_scaling_configuration_version" "${SERVICE_NAME}" {
+  auto_scaling_configuration_name = "\${var.project_name}-\${var.environment}-${SERVICE_NAME}-as"
 
   # Uses local config
-  min_size        = local.SERVICE_NAME_PLACEHOLDER_config.min_instances
-  max_size        = local.SERVICE_NAME_PLACEHOLDER_config.max_instances
-  max_concurrency = local.SERVICE_NAME_PLACEHOLDER_config.max_concurrency
+  min_size        = local.${SERVICE_NAME}_config.min_instances
+  max_size        = local.${SERVICE_NAME}_config.max_instances
+  max_concurrency = local.${SERVICE_NAME}_config.max_concurrency
 
   tags = {
-    Name    = "${var.project_name}-${var.environment}-SERVICE_NAME_PLACEHOLDER-as"
-    Service = "SERVICE_NAME_PLACEHOLDER"
+    Name    = "\${var.project_name}-\${var.environment}-${SERVICE_NAME}-as"
+    Service = "${SERVICE_NAME}"
   }
 }
 
 # =============================================================================
-# Outputs for SERVICE_NAME_PLACEHOLDER Service
+# Outputs for ${SERVICE_NAME} Service
 # =============================================================================
 
-output "apprunner_SERVICE_NAME_PLACEHOLDER_service_id" {
-  description = "ID of the SERVICE_NAME_PLACEHOLDER App Runner service"
-  value       = aws_apprunner_service.SERVICE_NAME_PLACEHOLDER.service_id
+output "apprunner_${SERVICE_NAME}_service_id" {
+  description = "ID of the ${SERVICE_NAME} App Runner service"
+  value       = aws_apprunner_service.${SERVICE_NAME}.service_id
 }
 
-output "apprunner_SERVICE_NAME_PLACEHOLDER_service_arn" {
-  description = "ARN of the SERVICE_NAME_PLACEHOLDER App Runner service"
-  value       = aws_apprunner_service.SERVICE_NAME_PLACEHOLDER.arn
+output "apprunner_${SERVICE_NAME}_service_arn" {
+  description = "ARN of the ${SERVICE_NAME} App Runner service"
+  value       = aws_apprunner_service.${SERVICE_NAME}.arn
 }
 
-output "apprunner_SERVICE_NAME_PLACEHOLDER_url" {
-  description = "App Runner service URL for SERVICE_NAME_PLACEHOLDER"
-  value       = "https://${aws_apprunner_service.SERVICE_NAME_PLACEHOLDER.service_url}"
+output "apprunner_${SERVICE_NAME}_url" {
+  description = "App Runner service URL for ${SERVICE_NAME}"
+  value       = "https://\${aws_apprunner_service.${SERVICE_NAME}.service_url}"
 }
 
-output "apprunner_SERVICE_NAME_PLACEHOLDER_status" {
-  description = "Status of the SERVICE_NAME_PLACEHOLDER App Runner service"
-  value       = aws_apprunner_service.SERVICE_NAME_PLACEHOLDER.status
+output "apprunner_${SERVICE_NAME}_status" {
+  description = "Status of the ${SERVICE_NAME} App Runner service"
+  value       = aws_apprunner_service.${SERVICE_NAME}.status
 }
 TEMPLATE_EOF
-
-# Replace placeholders with actual service name
-sed -i "s/SERVICE_NAME_PLACEHOLDER/${SERVICE_NAME}/g" "$APPRUNNER_TF_FILE"
 
 # =============================================================================
 # API Gateway Integration (Optional)
@@ -678,6 +763,26 @@ for ENV in "${ENVIRONMENTS[@]}"; do
   fi
 done
 echo ""
+if [ "$ENABLE_S3VECTOR" = "true" ]; then
+  echo "📦 S3 Vector Storage Configuration:"
+  echo "   ✅ Bootstrap remote state data source configured"
+  echo "   ✅ IAM policies attached: S3 Vector + Bedrock"
+  echo "   ✅ Buckets: ${S3VECTOR_BUCKETS}"
+
+  # Parse bucket suffixes into array for display
+  IFS=',' read -ra BUCKET_ARRAY <<< "$S3VECTOR_BUCKETS"
+  if [ ${#BUCKET_ARRAY[@]} -eq 1 ]; then
+    echo "   ✅ Environment variable: VECTOR_BUCKET_NAME"
+  else
+    echo "   ✅ Environment variables:"
+    for bucket in "${BUCKET_ARRAY[@]}"; do
+      BUCKET_VAR_NAME=$(echo "${bucket}" | tr '[:lower:]' '[:upper:]' | tr '-' '_')
+      echo "      - ${BUCKET_VAR_NAME}_BUCKET"
+    done
+  fi
+  echo "   ✅ Bedrock model: amazon.titan-embed-text-v2:0"
+  echo ""
+fi
 echo "🔭 Observability Features:"
 echo "   ✅ ADOT (AWS Distro for OpenTelemetry) in-container instrumentation"
 echo "   ✅ Automatic tracing for FastAPI, boto3, httpx"

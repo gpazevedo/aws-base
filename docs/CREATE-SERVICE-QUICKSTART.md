@@ -80,7 +80,7 @@ terraform/
 
 **Common dependencies:**
 
-- ✅ `shared` library (editable mode)
+- ✅ `agsys-common>=0.0.1,<1.0.0` (from CodeArtifact)
 - ✅ `fastapi` + `uvicorn`
 - ✅ `boto3` (AWS SDK)
 - ✅ `pydantic` + `pydantic-settings`
@@ -124,7 +124,7 @@ uv run pytest
 #### 3. Deploy Lambda Service
 
 ```bash
-# Build Docker image (arm64 for Lambda)
+# Build and push Docker image (automatically handles CodeArtifact authentication)
 ./scripts/docker-push.sh dev myservice Dockerfile.lambda
 
 # Deploy infrastructure
@@ -156,7 +156,7 @@ uv run pytest
 #### 3. Deploy App Runner Service
 
 ```bash
-# Build Docker image (amd64 for App Runner)
+# Build and push Docker image (automatically handles CodeArtifact authentication)
 ./scripts/docker-push.sh dev web Dockerfile.apprunner
 
 # Deploy infrastructure
@@ -164,6 +164,24 @@ make app-init-dev app-apply-dev
 ```
 
 ## What's Already Configured
+
+### ✅ agsys-common Library from CodeArtifact
+
+The service automatically includes the `agsys-common` library from your private AWS CodeArtifact repository:
+
+- **Package name**: `agsys-common` (published version of the shared library)
+- **Version constraint**: `>=0.0.1,<1.0.0`
+- **Import path**: `from common import ...` (not `from shared`)
+- **Authentication**: Automatic 12-hour tokens via `configure-codeartifact.sh`
+- **Docker builds**: Automatic authentication via `docker-push.sh`
+
+**Key features provided:**
+
+- Structured logging (`configure_logging`, `get_logger`)
+- OpenTelemetry tracing (`configure_tracing`)
+- Request logging middleware (`LoggingMiddleware`)
+- Health check utilities (`health_check_simple`)
+- Inter-service API calls (`ServiceAPIClient`)
 
 ### ✅ Structured Logging
 
@@ -197,7 +215,7 @@ ENABLE_TRACING=true
 ### ✅ Inter-Service Communication
 
 ```python
-from shared import ServiceAPIClient, get_service_url
+from common import ServiceAPIClient, get_service_url
 
 async with ServiceAPIClient(service_name="myservice") as client:
     url = get_service_url("other-service")
@@ -207,7 +225,7 @@ async with ServiceAPIClient(service_name="myservice") as client:
 ### ✅ Error Handling
 
 ```python
-from shared import get_logger
+from common import get_logger
 
 logger = get_logger(__name__)
 
@@ -356,7 +374,7 @@ RUN uv run python scripts/build.py
 ### Call Other Services
 
 ```python
-from shared import ServiceAPIClient
+from common import ServiceAPIClient
 
 async def call_api_service():
     async with ServiceAPIClient(service_name="myservice") as client:
@@ -370,7 +388,7 @@ async def call_api_service():
 ### Custom Logging
 
 ```python
-from shared import get_logger
+from common import get_logger
 
 logger = get_logger(__name__)
 
@@ -389,7 +407,7 @@ logger.bind(request_id="abc123").info("processing_request")
 ### Distributed Tracing
 
 ```python
-from shared import configure_tracing
+from common import configure_tracing
 
 # Enable tracing at startup
 configure_tracing(
@@ -417,10 +435,6 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 The script checks if the directory exists and will abort if found.
 
-### "Shared library not found"
-
-Ensure `backend/shared/` exists. This should be part of your template.
-
 ### Tests failing
 
 ```bash
@@ -439,10 +453,27 @@ uv run pytest tests/test_main.py::test_health_check -v
 ### Import errors
 
 ```bash
-# Reinstall shared library
+# Verify CodeArtifact is configured
 cd backend/myservice
-uv remove shared
-uv add --editable ../shared
+
+# Check if agsys-common is installed
+uv pip list | grep agsys-common
+
+# If missing, reinstall
+uv add "agsys-common>=0.0.1,<1.0.0"
+```
+
+### CodeArtifact authentication issues
+
+```bash
+# Configure CodeArtifact authentication (from project root)
+source <(./scripts/configure-codeartifact.sh)
+
+# Verify configuration
+echo $UV_INDEX_URL
+
+# If the token expired (12-hour lifetime), reconfigure
+./scripts/configure-codeartifact.sh
 ```
 
 ## What This Script Does
@@ -450,13 +481,14 @@ uv add --editable ../shared
 1. ✅ Validates service name
 2. ✅ Creates service directory
 3. ✅ Initializes uv project
-4. ✅ Installs shared library (editable)
-5. ✅ Adds all dependencies
-6. ✅ Creates FastAPI application
-7. ✅ Sets up tests
-8. ✅ Creates Dockerfile
-9. ✅ Generates documentation
-10. ✅ (Optional) Runs Terraform setup
+4. ✅ Configures CodeArtifact authentication
+5. ✅ Installs agsys-common from CodeArtifact
+6. ✅ Adds all dependencies
+7. ✅ Creates FastAPI application
+8. ✅ Sets up tests
+9. ✅ Creates Dockerfile with CodeArtifact support
+10. ✅ Generates documentation
+11. ✅ (Optional) Runs Terraform setup
 
 **Total time: ~30 seconds**
 
@@ -516,10 +548,345 @@ uv add --editable ../shared
 
 **Total: ~30 seconds** ⚡
 
+## S3 Vector Storage Integration
+
+Both Lambda and App Runner services can be automatically configured with S3 vector storage and Amazon Bedrock embeddings support.
+
+### Prerequisites
+
+Enable S3 vector storage in bootstrap:
+
+```bash
+# Edit bootstrap/terraform.tfvars
+enable_s3vector = true
+bucket_suffixes = ["vector-embeddings"]  # Add more as needed
+
+# Apply bootstrap changes
+cd bootstrap
+terraform apply
+```
+
+### Lambda Service with S3 Vector Storage
+
+When creating the Terraform configuration, specify which buckets to use:
+
+```bash
+# During service creation, when prompted for Terraform setup
+./scripts/create-lambda-service.sh embeddings "Embedding generation service"
+# Answer 'y' to Terraform setup
+
+# The setup script calls:
+./scripts/setup-terraform-lambda.sh embeddings true "vector-embeddings"
+```
+
+**Manual Terraform setup with S3 vectors:**
+
+```bash
+# Single bucket
+./scripts/setup-terraform-lambda.sh myservice true "vector-embeddings"
+
+# Multiple buckets
+./scripts/setup-terraform-lambda.sh myservice true "vector-embeddings,vector-cache"
+```
+
+**What gets configured:**
+
+- ✅ IAM policies for S3 vector access
+- ✅ IAM policies for Bedrock invocation
+- ✅ Environment variables: `VECTOR_BUCKET_NAME`, `BEDROCK_MODEL_ID`
+- ✅ Bootstrap remote state data source
+
+### App Runner Service with S3 Vector Storage
+
+```bash
+# During service creation, when prompted for Terraform setup
+./scripts/create-apprunner-service.sh search "Vector search service"
+# Answer 'y' to Terraform setup
+
+# The setup script calls:
+./scripts/setup-terraform-apprunner.sh search "vector-embeddings"
+```
+
+**Manual Terraform setup with S3 vectors:**
+
+```bash
+# Single bucket
+./scripts/setup-terraform-apprunner.sh web "vector-embeddings"
+
+# Multiple buckets
+./scripts/setup-apprunner.sh web "vector-embeddings,vector-cache,vector-docs"
+```
+
+**What gets configured:**
+
+- ✅ IAM policies for S3 vector access
+- ✅ IAM policies for Bedrock invocation
+- ✅ Environment variables (single bucket): `VECTOR_BUCKET_NAME`, `BEDROCK_MODEL_ID`
+- ✅ Environment variables (multiple buckets): `VECTOR_EMBEDDINGS_BUCKET`, `VECTOR_CACHE_BUCKET`, etc.
+- ✅ Bootstrap remote state data source
+
+### Environment Variables
+
+**Single bucket configuration:**
+
+```python
+VECTOR_BUCKET_NAME = "gustavo-vector-embeddings"
+BEDROCK_MODEL_ID = "amazon.titan-embed-text-v2:0"
+```
+
+**Multiple buckets configuration:**
+
+```python
+VECTOR_EMBEDDINGS_BUCKET = "gustavo-vector-embeddings"
+VECTOR_CACHE_BUCKET = "gustavo-vector-cache"
+VECTOR_DOCS_BUCKET = "gustavo-vector-docs"
+BEDROCK_MODEL_ID = "amazon.titan-embed-text-v2:0"
+```
+
+### Add Embedding Endpoints to Your Service
+
+After creating your service with S3 vector support, add the embedding functionality to your `main.py`.
+
+#### Step 1: Update Imports
+
+Add these imports at the top of your `main.py`:
+
+```python
+import json
+from datetime import UTC, datetime
+from typing import Any
+
+import boto3
+from botocore.exceptions import ClientError
+from pydantic import BaseModel, Field
+```
+
+#### Step 2: Add Configuration Variables
+
+After the existing environment variables section:
+
+```python
+# S3 Vector configuration (from Terraform environment variables)
+BEDROCK_MODEL_ID = os.getenv("BEDROCK_MODEL_ID", "amazon.titan-embed-text-v2:0")
+VECTOR_BUCKET_NAME = os.getenv("VECTOR_BUCKET_NAME", "")
+AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
+```
+
+#### Step 3: Add AWS Clients
+
+After the logging setup, add lazy-loaded AWS clients:
+
+```python
+# =============================================================================
+# AWS Clients
+# =============================================================================
+
+class AWSClients:
+    """Lazy-loaded AWS clients for S3 and Bedrock."""
+
+    _bedrock = None
+    _s3 = None
+
+    @property
+    def bedrock(self):
+        if self._bedrock is None:
+            self._bedrock = boto3.client("bedrock-runtime", region_name=AWS_REGION)
+        return self._bedrock
+
+    @property
+    def s3(self):
+        if self._s3 is None:
+            self._s3 = boto3.client("s3", region_name=AWS_REGION)
+        return self._s3
+
+aws_clients = AWSClients()
+```
+
+#### Step 4: Add Pydantic Models
+
+```python
+class EmbeddingRequest(BaseModel):
+    """Request to generate embedding."""
+    text: str = Field(..., description="Text to generate embedding for", min_length=1)
+    store_in_s3: bool = Field(default=False, description="Store embedding in S3")
+    embedding_id: str | None = Field(default=None, description="ID for S3 storage")
+
+class EmbeddingResponse(BaseModel):
+    """Response with generated embedding."""
+    embedding: list[float]
+    dimension: int
+    model: str
+    text_length: int
+    processing_time_ms: float
+    stored_in_s3: bool = False
+    s3_key: str | None = None
+
+class StoreEmbeddingRequest(BaseModel):
+    """Request to store embedding in S3."""
+    embedding_id: str = Field(..., description="Unique ID for the embedding")
+    text: str = Field(..., description="Original text")
+    embedding: list[float] = Field(..., description="Embedding vector")
+    metadata: dict[str, Any] | None = Field(default=None, description="Additional metadata")
+
+class StoreEmbeddingResponse(BaseModel):
+    """Response after storing embedding."""
+    success: bool
+    s3_key: str
+    bucket: str
+
+class RetrieveEmbeddingResponse(BaseModel):
+    """Response with retrieved embedding."""
+    embedding_id: str
+    text: str
+    embedding: list[float]
+    dimension: int
+    metadata: dict[str, Any]
+```
+
+#### Step 5: Add Embedding Endpoints
+
+Add these three endpoints (you can add them after the existing router setup):
+
+```python
+@app.post("/embeddings/generate", response_model=EmbeddingResponse, tags=["Embeddings"])
+async def generate_embedding(request: EmbeddingRequest) -> EmbeddingResponse:
+    """Generate embedding using Amazon Bedrock Titan model."""
+    logger.info("generating_embedding", text_length=len(request.text), store_in_s3=request.store_in_s3)
+    start_time = time.time()
+
+    try:
+        # Invoke Bedrock model
+        body = json.dumps({"inputText": request.text})
+        response = aws_clients.bedrock.invoke_model(
+            modelId=BEDROCK_MODEL_ID,
+            contentType="application/json",
+            accept="application/json",
+            body=body,
+        )
+
+        result = json.loads(response["body"].read())
+        embedding = result["embedding"]
+        processing_time = (time.time() - start_time) * 1000
+
+        # Optionally store in S3
+        s3_key = None
+        if request.store_in_s3:
+            if not request.embedding_id:
+                raise HTTPException(status_code=400, detail="embedding_id required when store_in_s3=true")
+
+            s3_key = f"embeddings/{request.embedding_id}.json"
+            await store_embedding_in_s3(request.embedding_id, request.text, embedding, {})
+            logger.info("embedding_stored_in_s3", s3_key=s3_key)
+
+        return EmbeddingResponse(
+            embedding=embedding,
+            dimension=len(embedding),
+            model=BEDROCK_MODEL_ID,
+            text_length=len(request.text),
+            processing_time_ms=round(processing_time, 2),
+            stored_in_s3=request.store_in_s3,
+            s3_key=s3_key,
+        )
+
+    except ClientError as e:
+        error_code = e.response["Error"]["Code"]
+        logger.error("bedrock_error", error_code=error_code, error=str(e))
+        raise HTTPException(status_code=503, detail=f"Bedrock error: {error_code}") from e
+    except Exception as e:
+        logger.exception("embedding_generation_failed", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to generate embedding: {str(e)}") from e
+
+
+@app.post("/embeddings/store", response_model=StoreEmbeddingResponse, tags=["Embeddings"])
+async def store_embedding(request: StoreEmbeddingRequest) -> StoreEmbeddingResponse:
+    """Store embedding in S3."""
+    if not VECTOR_BUCKET_NAME:
+        raise HTTPException(status_code=503, detail="S3 bucket not configured")
+
+    logger.info("storing_embedding", embedding_id=request.embedding_id, dimension=len(request.embedding))
+
+    try:
+        s3_key = f"embeddings/{request.embedding_id}.json"
+        await store_embedding_in_s3(request.embedding_id, request.text, request.embedding, request.metadata or {})
+        logger.info("embedding_stored", s3_key=s3_key)
+
+        return StoreEmbeddingResponse(success=True, s3_key=s3_key, bucket=VECTOR_BUCKET_NAME)
+
+    except Exception as e:
+        logger.exception("embedding_store_failed", embedding_id=request.embedding_id, error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to store embedding: {str(e)}") from e
+
+
+@app.get("/embeddings/{embedding_id}", response_model=RetrieveEmbeddingResponse, tags=["Embeddings"])
+async def retrieve_embedding(embedding_id: str) -> RetrieveEmbeddingResponse:
+    """Retrieve embedding from S3."""
+    if not VECTOR_BUCKET_NAME:
+        raise HTTPException(status_code=503, detail="S3 bucket not configured")
+
+    logger.info("retrieving_embedding", embedding_id=embedding_id)
+
+    try:
+        s3_key = f"embeddings/{embedding_id}.json"
+        response = aws_clients.s3.get_object(Bucket=VECTOR_BUCKET_NAME, Key=s3_key)
+        data = json.loads(response["Body"].read())
+
+        logger.info("embedding_retrieved", embedding_id=embedding_id, dimension=len(data["embedding"]))
+
+        return RetrieveEmbeddingResponse(
+            embedding_id=data["id"],
+            text=data["text"],
+            embedding=data["embedding"],
+            dimension=data["dimension"],
+            metadata=data.get("metadata", {}),
+        )
+
+    except aws_clients.s3.exceptions.NoSuchKey:
+        raise HTTPException(status_code=404, detail=f"Embedding not found: {embedding_id}")
+    except Exception as e:
+        logger.exception("embedding_retrieval_failed", embedding_id=embedding_id, error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve embedding: {str(e)}") from e
+
+
+async def store_embedding_in_s3(
+    embedding_id: str, text: str, embedding: list[float], metadata: dict[str, Any]
+) -> None:
+    """Store embedding in S3."""
+    document = {
+        "id": embedding_id,
+        "text": text,
+        "embedding": embedding,
+        "dimension": len(embedding),
+        "metadata": metadata,
+        "created_at": datetime.now(UTC).isoformat(),
+    }
+
+    aws_clients.s3.put_object(
+        Bucket=VECTOR_BUCKET_NAME,
+        Key=f"embeddings/{embedding_id}.json",
+        Body=json.dumps(document),
+        ContentType="application/json",
+    )
+```
+
+#### Complete Example
+
+See [backend/vector/main.py](../backend/vector/main.py) for a complete working implementation created with:
+
+```bash
+./scripts/create-lambda-service.sh vector "S3Vector service"
+# Then added the S3 vector embedding endpoints
+```
+
+**Additional references:**
+
+- [S3-VECTOR-STORAGE.md](S3-VECTOR-STORAGE.md) - Full S3 vector setup guide
+- [backend/s3vector/main.py](../backend/s3vector/main.py) - Original reference implementation
+
 ## See Also
 
 - [SHARED-LIBRARY.md](SHARED-LIBRARY.md) - Shared library documentation
 - [API-KEYS-QUICKSTART.md](API-KEYS-QUICKSTART.md) - API key setup
+- [S3-VECTOR-STORAGE.md](S3-VECTOR-STORAGE.md) - S3 vector storage guide
 - [ADDING-SERVICES.md](ADDING-SERVICES.md) - Manual service setup
 - [INSTALLATION.md](INSTALLATION.md) - Development environment setup
 

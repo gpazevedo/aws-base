@@ -30,7 +30,7 @@
 # =============================================================================
 
 resource "aws_iam_policy" "s3_vector_management" {
-  count = var.enable_lambda || var.enable_apprunner ? 1 : 0
+  count = var.enable_s3vector ? 1 : 0
 
   name        = "${var.project_name}-s3-vector-management"
   description = "Allows GitHub Actions to manage S3 vector storage buckets for ${var.project_name}"
@@ -131,7 +131,7 @@ resource "aws_iam_policy" "s3_vector_management" {
 
 # Attach to dev role
 resource "aws_iam_role_policy_attachment" "dev_s3_vector_management" {
-  count = var.enable_lambda || var.enable_apprunner ? 1 : 0
+  count = var.enable_s3vector ? 1 : 0
 
   role       = aws_iam_role.github_actions_dev.name
   policy_arn = aws_iam_policy.s3_vector_management[0].arn
@@ -139,7 +139,7 @@ resource "aws_iam_role_policy_attachment" "dev_s3_vector_management" {
 
 # Attach to test role
 resource "aws_iam_role_policy_attachment" "test_s3_vector_management" {
-  count = (var.enable_lambda || var.enable_apprunner) && var.enable_test_environment ? 1 : 0
+  count = var.enable_s3vector && var.enable_test_environment ? 1 : 0
 
   role       = aws_iam_role.github_actions_test[0].name
   policy_arn = aws_iam_policy.s3_vector_management[0].arn
@@ -147,7 +147,7 @@ resource "aws_iam_role_policy_attachment" "test_s3_vector_management" {
 
 # Attach to prod role
 resource "aws_iam_role_policy_attachment" "prod_s3_vector_management" {
-  count = var.enable_lambda || var.enable_apprunner ? 1 : 0
+  count = var.enable_s3vector ? 1 : 0
 
   role       = aws_iam_role.github_actions_prod.name
   policy_arn = aws_iam_policy.s3_vector_management[0].arn
@@ -192,7 +192,7 @@ resource "aws_iam_role_policy_attachment" "prod_s3_vector_management" {
 # =============================================================================
 
 resource "aws_iam_policy" "s3_vector_service_access" {
-  count = var.enable_lambda || var.enable_apprunner ? 1 : 0
+  count = var.enable_s3vector ? 1 : 0
 
   name        = "${var.project_name}-s3-vector-service-access"
   description = "Allows services to read/write vector embeddings to S3 buckets for ${var.project_name}"
@@ -278,7 +278,7 @@ resource "aws_iam_policy" "s3_vector_service_access" {
 # =============================================================================
 
 resource "aws_iam_policy" "bedrock_invocation" {
-  count = var.enable_lambda || var.enable_apprunner ? 1 : 0
+  count = var.enable_s3vector ? 1 : 0
 
   name        = "${var.project_name}-bedrock-invocation"
   description = "Allows services to invoke Bedrock models for ${var.project_name}"

@@ -1,17 +1,22 @@
 """
-api Service
+vector Service
 
-api service
+S3 Vector Embeddings Service - Generate and store embeddings using Amazon Bedrock
 """
 
+import json
 import os
 import time
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import Any
 
+import boto3
 import httpx
+from botocore.exceptions import ClientError
 from fastapi import APIRouter, FastAPI, HTTPException, Query
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 
 from common import (
     configure_logging,
@@ -28,13 +33,18 @@ from common import (
 # Configuration
 # =============================================================================
 
-SERVICE_NAME = "api"
+SERVICE_NAME = "vector"
 SERVICE_VERSION = "1.0.0"
 START_TIME = time.time()  # Unix timestamp for uptime calculation
 
 # Environment variables
 ENVIRONMENT = os.getenv("ENVIRONMENT", "dev")
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+
+# S3 Vector configuration (from Terraform environment variables)
+BEDROCK_MODEL_ID = os.getenv("BEDROCK_MODEL_ID", "amazon.titan-embed-text-v2:0")
+VECTOR_BUCKET_NAME = os.getenv("VECTOR_BUCKET_NAME", "")
+AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
 
 # =============================================================================
 # Logging and Tracing Setup
@@ -56,6 +66,93 @@ logger = get_logger(__name__).bind(
 # - FastAPI endpoints
 # No manual configure_tracing() needed when using ADOT layer
 logger.info("service_initialized", adot_layer="enabled")
+
+
+# =============================================================================
+# AWS Clients
+# =============================================================================
+
+
+class AWSClients:
+    """Lazy-loaded AWS clients for S3 and Bedrock."""
+
+    _bedrock = None
+    _s3 = None
+
+    @property
+    def bedrock(self):
+        if self._bedrock is None:
+            self._bedrock = boto3.client("bedrock-runtime", region_name=AWS_REGION)
+        return self._bedrock
+
+    @property
+    def s3(self):
+        if self._s3 is None:
+            self._s3 = boto3.client("s3", region_name=AWS_REGION)
+        return self._s3
+
+
+aws_clients = AWSClients()
+
+
+# =============================================================================
+# Pydantic Models
+# =============================================================================
+
+
+class EmbeddingRequest(BaseModel):
+    """Request to generate embedding."""
+
+    text: str = Field(..., description="Text to generate embedding for", min_length=1)
+    store_in_s3: bool = Field(default=False, description="Store embedding in S3")
+    embedding_id: str | None = Field(default=None, description="ID for S3 storage")
+
+
+class EmbeddingResponse(BaseModel):
+    """Response with generated embedding."""
+
+    embedding: list[float]
+    dimension: int
+    model: str
+    text_length: int
+    processing_time_ms: float
+    stored_in_s3: bool = False
+    s3_key: str | None = None
+
+
+class StoreEmbeddingRequest(BaseModel):
+    """Request to store embedding in S3."""
+
+    embedding_id: str = Field(..., description="Unique ID for the embedding")
+    text: str = Field(..., description="Original text")
+    embedding: list[float] = Field(..., description="Embedding vector")
+    metadata: dict[str, Any] | None = Field(default=None, description="Additional metadata")
+
+
+class StoreEmbeddingResponse(BaseModel):
+    """Response after storing embedding."""
+
+    success: bool
+    s3_key: str
+    bucket: str
+
+
+class RetrieveEmbeddingResponse(BaseModel):
+    """Response with retrieved embedding."""
+
+    embedding_id: str
+    text: str
+    embedding: list[float]
+    dimension: int
+    metadata: dict[str, Any]
+
+
+class DeleteEmbeddingResponse(BaseModel):
+    """Response after deleting embedding."""
+
+    success: bool
+    embedding_id: str
+    message: str
 
 
 # =============================================================================
@@ -97,7 +194,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title=f"{SERVICE_NAME} Service",
-    description="api service",
+    description="S3Vector service",
     version=SERVICE_VERSION,
     lifespan=lifespan,
     root_path=f"/{SERVICE_NAME}",  # API Gateway path prefix - helps with OpenAPI docs
@@ -132,7 +229,7 @@ async def status():
         name=SERVICE_NAME,
         version=SERVICE_VERSION,
         environment=ENVIRONMENT,
-        description="api service",
+        description="S3Vector service",
     )
 
 
@@ -151,6 +248,201 @@ async def root():
 # This allows the service to work whether accessed at "/" or "/SERVICE_NAME/"
 app.include_router(router)  # For root-level access
 app.include_router(router, prefix=f"/{SERVICE_NAME}")  # For prefixed access
+
+
+# =============================================================================
+# Embedding Endpoints
+# =============================================================================
+
+
+@app.post("/embeddings/generate", response_model=EmbeddingResponse, tags=["Embeddings"])
+async def generate_embedding(request: EmbeddingRequest) -> EmbeddingResponse:
+    """Generate embedding using Amazon Bedrock Titan model."""
+    logger.info(
+        "generating_embedding", text_length=len(request.text), store_in_s3=request.store_in_s3
+    )
+
+    start_time = time.time()
+
+    try:
+        # Invoke Bedrock model
+        body = json.dumps({"inputText": request.text})
+
+        response = aws_clients.bedrock.invoke_model(
+            modelId=BEDROCK_MODEL_ID,
+            contentType="application/json",
+            accept="application/json",
+            body=body,
+        )
+
+        result = json.loads(response["body"].read())
+        embedding = result["embedding"]
+        processing_time = (time.time() - start_time) * 1000
+
+        logger.info(
+            "embedding_generated",
+            model=BEDROCK_MODEL_ID,
+            dimension=len(embedding),
+            processing_time_ms=round(processing_time, 2),
+        )
+
+        # Optionally store in S3
+        s3_key = None
+        if request.store_in_s3:
+            if not request.embedding_id:
+                raise HTTPException(
+                    status_code=400, detail="embedding_id required when store_in_s3=true"
+                )
+
+            s3_key = f"embeddings/{request.embedding_id}.json"
+            await store_embedding_in_s3(request.embedding_id, request.text, embedding, {})
+            logger.info("embedding_stored_in_s3", s3_key=s3_key)
+
+        return EmbeddingResponse(
+            embedding=embedding,
+            dimension=len(embedding),
+            model=BEDROCK_MODEL_ID,
+            text_length=len(request.text),
+            processing_time_ms=round(processing_time, 2),
+            stored_in_s3=request.store_in_s3,
+            s3_key=s3_key,
+        )
+
+    except ClientError as e:
+        error_code = e.response["Error"]["Code"]
+        logger.error("bedrock_error", error_code=error_code, error=str(e))
+        raise HTTPException(status_code=503, detail=f"Bedrock error: {error_code}") from e
+    except Exception as e:
+        logger.exception("embedding_generation_failed", error=str(e))
+        raise HTTPException(
+            status_code=500, detail=f"Failed to generate embedding: {str(e)}"
+        ) from e
+
+
+@app.post("/embeddings/store", response_model=StoreEmbeddingResponse, tags=["Embeddings"])
+async def store_embedding(request: StoreEmbeddingRequest) -> StoreEmbeddingResponse:
+    """Store embedding in S3."""
+    if not VECTOR_BUCKET_NAME:
+        raise HTTPException(status_code=503, detail="S3 bucket not configured")
+
+    logger.info(
+        "storing_embedding", embedding_id=request.embedding_id, dimension=len(request.embedding)
+    )
+
+    try:
+        s3_key = f"embeddings/{request.embedding_id}.json"
+        await store_embedding_in_s3(
+            request.embedding_id, request.text, request.embedding, request.metadata or {}
+        )
+
+        logger.info("embedding_stored", s3_key=s3_key)
+
+        return StoreEmbeddingResponse(
+            success=True, s3_key=s3_key, bucket=VECTOR_BUCKET_NAME
+        )
+
+    except Exception as e:
+        logger.exception("embedding_store_failed", embedding_id=request.embedding_id, error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to store embedding: {str(e)}") from e
+
+
+@app.get(
+    "/embeddings/{embedding_id}", response_model=RetrieveEmbeddingResponse, tags=["Embeddings"]
+)
+async def retrieve_embedding(embedding_id: str) -> RetrieveEmbeddingResponse:
+    """Retrieve embedding from S3."""
+    if not VECTOR_BUCKET_NAME:
+        raise HTTPException(status_code=503, detail="S3 bucket not configured")
+
+    logger.info("retrieving_embedding", embedding_id=embedding_id)
+
+    try:
+        s3_key = f"embeddings/{embedding_id}.json"
+        response = aws_clients.s3.get_object(Bucket=VECTOR_BUCKET_NAME, Key=s3_key)
+
+        data = json.loads(response["Body"].read())
+
+        logger.info(
+            "embedding_retrieved", embedding_id=embedding_id, dimension=len(data["embedding"])
+        )
+
+        return RetrieveEmbeddingResponse(
+            embedding_id=data["id"],
+            text=data["text"],
+            embedding=data["embedding"],
+            dimension=data["dimension"],
+            metadata=data.get("metadata", {}),
+        )
+
+    except aws_clients.s3.exceptions.NoSuchKey:
+        raise HTTPException(status_code=404, detail=f"Embedding not found: {embedding_id}")
+    except Exception as e:
+        logger.exception("embedding_retrieval_failed", embedding_id=embedding_id, error=str(e))
+        raise HTTPException(
+            status_code=500, detail=f"Failed to retrieve embedding: {str(e)}"
+        ) from e
+
+
+@app.delete(
+    "/embeddings/{embedding_id}", response_model=DeleteEmbeddingResponse, tags=["Embeddings"]
+)
+async def delete_embedding(embedding_id: str) -> DeleteEmbeddingResponse:
+    """Delete embedding from S3."""
+    if not VECTOR_BUCKET_NAME:
+        raise HTTPException(status_code=503, detail="S3 bucket not configured")
+
+    logger.info("deleting_embedding", embedding_id=embedding_id)
+
+    try:
+        s3_key = f"embeddings/{embedding_id}.json"
+
+        # Check if embedding exists before deleting
+        try:
+            aws_clients.s3.head_object(Bucket=VECTOR_BUCKET_NAME, Key=s3_key)
+        except ClientError as e:
+            if e.response["Error"]["Code"] == "404":
+                raise HTTPException(status_code=404, detail=f"Embedding not found: {embedding_id}")
+            raise  # Re-raise other ClientErrors
+
+        # Delete the embedding
+        aws_clients.s3.delete_object(Bucket=VECTOR_BUCKET_NAME, Key=s3_key)
+
+        logger.info("embedding_deleted", embedding_id=embedding_id, s3_key=s3_key)
+
+        return DeleteEmbeddingResponse(
+            success=True,
+            embedding_id=embedding_id,
+            message=f"Embedding {embedding_id} successfully deleted",
+        )
+
+    except HTTPException:
+        raise  # Re-raise HTTP exceptions
+    except Exception as e:
+        logger.exception("embedding_deletion_failed", embedding_id=embedding_id, error=str(e))
+        raise HTTPException(
+            status_code=500, detail=f"Failed to delete embedding: {str(e)}"
+        ) from e
+
+
+async def store_embedding_in_s3(
+    embedding_id: str, text: str, embedding: list[float], metadata: dict[str, Any]
+) -> None:
+    """Store embedding in S3."""
+    document = {
+        "id": embedding_id,
+        "text": text,
+        "embedding": embedding,
+        "dimension": len(embedding),
+        "metadata": metadata,
+        "created_at": datetime.now(UTC).isoformat(),
+    }
+
+    aws_clients.s3.put_object(
+        Bucket=VECTOR_BUCKET_NAME,
+        Key=f"embeddings/{embedding_id}.json",
+        Body=json.dumps(document),
+        ContentType="application/json",
+    )
 
 
 # =============================================================================
@@ -228,15 +520,6 @@ async def call_service(
             status_code=500,
             detail=f"Unexpected error calling service at {service_url}: {str(e)}",
         ) from e
-
-
-# Add your business logic endpoints here
-# Example:
-# @app.post("/process")
-# async def process_data(data: YourModel):
-#     logger.info("processing_data", data=data.dict())
-#     # Your business logic here
-#     return {"status": "processed"}
 
 
 # =============================================================================

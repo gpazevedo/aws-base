@@ -1,54 +1,48 @@
 # =============================================================================
-# Dockerfile for AWS App Runner (Python 3.14 + uv)
+# App Runner Dockerfile for runner Service
 # =============================================================================
-# This Dockerfile builds an App Runner container image using Python 3.14 and uv
+# This Dockerfile builds an App Runner container image using Python 3.14
 # App Runner expects the application to listen on port 8080
 #
 # Multi-architecture support:
-# - arm64 (default): For production AWS App Runner (Graviton2)
-# - amd64: For local testing on x86_64 machines
+# - amd64 (default): For production AWS App Runner (x86_64)
+# - arm64: For local testing on ARM machines
 #
 # Build examples:
-#   docker build --platform=linux/arm64 --build-arg SERVICE_FOLDER=api -t myapp:latest .
-#   docker build --platform=linux/amd64 --build-arg SERVICE_FOLDER=worker -t myapp:latest .
+#   docker build --platform=linux/amd64 -t runner:latest .
+#   docker build --platform=linux/arm64 -t runner:latest .
 # =============================================================================
 
-# Service folder argument (defaults to 'api')
-ARG SERVICE_FOLDER=runner
-
 # Multi-arch support - TARGETPLATFORM is automatically set by Docker BuildKit
-# When using --platform=linux/arm64, TARGETPLATFORM=linux/arm64
 # When using --platform=linux/amd64, TARGETPLATFORM=linux/amd64
+# When using --platform=linux/arm64, TARGETPLATFORM=linux/arm64
 # The python:3.14-slim multi-arch manifest will pull the correct variant
 ARG TARGETPLATFORM
 FROM --platform=$TARGETPLATFORM python:3.14-slim
 
-# Re-declare ARG after FROM (Docker requirement)
-ARG SERVICE_FOLDER=runner
-
 # Install uv - fast Python package installer
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
 # Set working directory
 WORKDIR /app
-
-# Install system dependencies (if needed)
-# Uncomment and modify based on your requirements
-# RUN apt-get update && apt-get install -y \
-#     gcc \
-#     && rm -rf /var/lib/apt/lists/*
 
 # Set environment variables for uv
 ENV UV_SYSTEM_PYTHON=1
 ENV UV_COMPILE_BYTECODE=1
 
-# Copy pyproject.toml
-COPY ${SERVICE_FOLDER}/pyproject.toml ./
+# Copy service files
+COPY backend/runner/pyproject.toml backend/runner/uv.lock* ./
 
-# Generate requirements from pyproject.toml and install
-RUN uv pip compile pyproject.toml -o requirements.txt && \
-    uv pip install --no-cache -r requirements.txt && \
-    rm requirements.txt
+# CodeArtifact authentication (passed at build time)
+ARG CODEARTIFACT_INDEX_URL
+ARG UV_EXTRA_INDEX_URL=https://pypi.org/simple/
+ENV UV_INDEX_URL=${CODEARTIFACT_INDEX_URL}
+ENV UV_EXTRA_INDEX_URL=${UV_EXTRA_INDEX_URL}
+
+# Install dependencies to system Python using uv pip
+# Export dependencies from lock file and install to system site-packages
+RUN uv export --no-dev --frozen > requirements.txt && \
+    uv pip install --system --no-cache -r requirements.txt
 
 # Install OpenTelemetry ADOT dependencies for automatic instrumentation
 # ADOT provides automatic tracing for FastAPI, boto3, httpx, and more
@@ -62,8 +56,8 @@ RUN uv pip install --no-cache \
 # This detects installed libraries and installs appropriate instrumentors
 RUN opentelemetry-bootstrap --action=install
 
-# Copy all application files
-COPY ${SERVICE_FOLDER}/ ./
+# Copy application code (all .py files except tests)
+COPY backend/runner/*.py ./
 
 # Remove test files
 RUN rm -f test_*.py

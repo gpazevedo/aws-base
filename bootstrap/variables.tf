@@ -346,6 +346,22 @@ variable "codeartifact_domain" {
 }
 
 # =============================================================================
+# S3 Vector Storage Configuration
+# =============================================================================
+
+variable "enable_s3vector" {
+  description = "Enable S3 vector storage infrastructure and IAM policies"
+  type        = bool
+  default     = false
+}
+
+variable "bucket_suffixes" {
+  description = "List of suffixes for the S3 vector buckets to create (e.g., 'vector-embeddings', 'vector-cache')"
+  type        = set(string)
+  default     = ["vector-embeddings"] # Default value if none provided
+}
+
+# =============================================================================
 # Tags
 # =============================================================================
 

@@ -66,7 +66,7 @@ Complete documentation for the AWS Bootstrap Infrastructure project.
 - ✅ Updated setup scripts to generate self-contained service configurations
 - ✅ Each service now has its configuration in its own Terraform file
 - ✅ Deployed s3vector Lambda service with Bedrock and S3 integration
-- ✅ API Gateway now requires API key authentication
+- ✅ API Gateway supports API key authentication (enabled by default)
 
 **Benefits:**
 

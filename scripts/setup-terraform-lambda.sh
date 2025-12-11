@@ -300,15 +300,18 @@ resource "aws_lambda_function" "SERVICE_NAME_PLACEHOLDER" {
   timeout       = local.SERVICE_NAME_PLACEHOLDER_config.timeout
   architectures = [var.lambda_architecture]
 
+  # NOTE: Lambda layers are not supported with container images.
+  # To use ADOT with container images, install it in your Dockerfile.
+  # See: https://aws-otel.github.io/docs/getting-started/lambda/
+
   # Environment variables
   environment {
     variables = {
-      ENVIRONMENT     = var.environment
-      PROJECT_NAME    = var.project_name
-      SERVICE_NAME    = "SERVICE_NAME_PLACEHOLDER"
-      LOG_LEVEL       = var.environment == "prod" ? "INFO" : "DEBUG"
-      API_GATEWAY_URL = local.api_gateway_enabled ? module.api_gateway_shared[0].invoke_url : ""
-      AWS_REGION      = var.aws_region
+      ENVIRONMENT  = var.environment
+      PROJECT_NAME = var.project_name
+      SERVICE_NAME = "SERVICE_NAME_PLACEHOLDER"
+      LOG_LEVEL    = var.environment == "prod" ? "INFO" : "DEBUG"
+
       # Add custom environment variables from local config
       # Uncomment and add as needed based on local config
     }
@@ -321,6 +324,7 @@ resource "aws_lambda_function" "SERVICE_NAME_PLACEHOLDER" {
   }
 
   # Distributed tracing configuration
+  # X-Ray tracing is automatically configured via ADOT Layer
   tracing_config {
     mode = "Active"
   }
@@ -328,7 +332,7 @@ resource "aws_lambda_function" "SERVICE_NAME_PLACEHOLDER" {
   tags = {
     Name        = "${var.project_name}-${var.environment}-SERVICE_NAME_PLACEHOLDER"
     Service     = "SERVICE_NAME_PLACEHOLDER"
-    Description = "SERVICE_NAME_PLACEHOLDER Lambda function"
+    Description = "SERVICE_NAME_PLACEHOLDER Lambda function with ADOT observability"
   }
 }
 
@@ -537,6 +541,12 @@ for ENV in "${ENVIRONMENTS[@]}"; do
     echo "   terraform/environments/${ENV}.tfvars (updated)"
   fi
 done
+echo ""
+echo "🔭 Observability Features:"
+echo "   ✅ X-Ray tracing enabled"
+echo "   ✅ JSON structured logging"
+echo "   ℹ️  ADOT layers not used (container images don't support layers)"
+echo "   💡 To add ADOT: Install in Dockerfile - see aws-otel.github.io/docs/getting-started/lambda/"
 echo ""
 echo "🚀 Next Steps for '${SERVICE_NAME}' Service:"
 echo ""

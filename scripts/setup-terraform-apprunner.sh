@@ -413,8 +413,17 @@ resource "aws_apprunner_service" "SERVICE_NAME_PLACEHOLDER" {
             PROJECT_NAME    = var.project_name
             SERVICE_NAME    = "SERVICE_NAME_PLACEHOLDER"
             LOG_LEVEL       = var.environment == "prod" ? "INFO" : "DEBUG"
-            API_GATEWAY_URL = local.api_gateway_enabled ? module.api_gateway_shared[0].invoke_url : ""
-            AWS_REGION      = var.aws_region
+
+            # ADOT/OpenTelemetry Configuration for X-Ray Tracing
+            # App Runner manages the OTLP collector on localhost:4317
+            # See: https://docs.aws.amazon.com/apprunner/latest/dg/monitor-xray.html
+            OTEL_PROPAGATORS                      = "xray"
+            OTEL_PYTHON_ID_GENERATOR              = "xray"
+            OTEL_METRICS_EXPORTER                 = "none"  # App Runner only accepts traces, not metrics
+            OTEL_EXPORTER_OTLP_ENDPOINT           = "http://localhost:4317"
+            OTEL_RESOURCE_ATTRIBUTES              = "service.name=SERVICE_NAME_PLACEHOLDER"
+            OTEL_SERVICE_NAME                     = "SERVICE_NAME_PLACEHOLDER"
+            OTEL_PYTHON_DISABLED_INSTRUMENTATIONS = "urllib3"  # Reduce noise from low-level HTTP
           },
           local.SERVICE_NAME_PLACEHOLDER_config.environment_variables
         )
@@ -669,6 +678,12 @@ for ENV in "${ENVIRONMENTS[@]}"; do
   fi
 done
 echo ""
+echo "🔭 Observability Features:"
+echo "   ✅ ADOT (AWS Distro for OpenTelemetry) in-container instrumentation"
+echo "   ✅ Automatic tracing for FastAPI, boto3, httpx"
+echo "   ✅ X-Ray integration via App Runner observability config"
+echo "   ✅ JSON structured logging"
+echo ""
 echo "🚀 Next Steps for '${SERVICE_NAME}' Service:"
 echo ""
 echo "1. Build and push Docker image:"
@@ -683,6 +698,12 @@ echo "   curl \$APPRUNNER_URL/health"
 echo ""
 echo "💡 To configure service-specific settings (CPU, memory, scaling, etc.):"
 echo "   Edit terraform/environments/dev.tfvars and add to apprunner_service_configs"
+echo ""
+echo "🔧 ADOT Configuration:"
+echo "   - ADOT is installed in the container image (Dockerfile.apprunner)"
+echo "   - Environment variables configured for X-Ray tracing"
+echo "   - App Runner manages the OTLP collector on localhost:4317"
+echo "   - Update versions: Edit adot_python_version in apprunner-variables.tf"
 echo ""
 echo "🔑 API Keys:"
 echo "   - Service API key configuration is in locals.${SERVICE_NAME}_service_api_key"

@@ -28,7 +28,7 @@ Verify that creating the first Lambda service creates `api-gateway.tf` with shar
 
 ```bash
 # 1. Create 'api' Lambda service (should create api-gateway.tf)
-./scripts/setup-terraform-lambda.sh api false
+./scripts/setup-terraform-lambda.sh api
 
 # 2. Verify file structure
 ls -la terraform/
@@ -81,7 +81,7 @@ Verify that adding a second Lambda service appends integration without overwriti
 
 ```bash
 # 1. Create 'worker' Lambda service (should append to api-gateway.tf)
-./scripts/setup-terraform-lambda.sh worker false
+./scripts/setup-terraform-lambda.sh worker
 
 # 2. Verify file structure
 ls -la terraform/
@@ -140,7 +140,7 @@ Verify scalability by adding a third service.
 
 ```bash
 # 1. Create 'scheduler' Lambda service
-./scripts/setup-terraform-lambda.sh scheduler false
+./scripts/setup-terraform-lambda.sh scheduler
 
 # 2. Verify api-gateway.tf has three integrations
 grep "module \"api_gateway_lambda_" terraform/api-gateway.tf
@@ -175,7 +175,7 @@ Verify that re-running the same service setup is safe (doesn't duplicate).
 
 ```bash
 # 1. Re-run setup for existing service
-./scripts/setup-terraform-lambda.sh worker false
+./scripts/setup-terraform-lambda.sh worker
 
 # Expected output: "ℹ️  Integration for 'worker' already exists in api-gateway.tf"
 
@@ -306,7 +306,7 @@ rm terraform/api-gateway.tf
 
 # 4. Regenerate with new structure
 cd ..
-./scripts/setup-terraform-lambda.sh api false
+./scripts/setup-terraform-lambda.sh api
 
 # 5. Initialize and check plan
 cd terraform
@@ -411,7 +411,7 @@ curl -H "x-api-key: YOUR_KEY_HERE" $PRIMARY_URL/health
 **Solution:**
 ```bash
 # Create at least one Lambda service first
-./scripts/setup-terraform-lambda.sh api false
+./scripts/setup-terraform-lambda.sh api
 
 # Then create AppRunner service
 ./scripts/setup-terraform-apprunner.sh web

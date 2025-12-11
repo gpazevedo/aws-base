@@ -1,53 +1,45 @@
 """Runner FastAPI service that calls the API service health endpoint."""
 
-import logging
 import os
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
 from typing import Any
 
 import httpx
-import structlog
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import JSONResponse
-from opentelemetry import trace
-from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
-from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
-from opentelemetry.sdk.resources import Resource
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from pydantic import BaseModel
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from shared import (
+    ErrorResponse,
+    FullServiceSettings,
+    GreetingRequest,
+    GreetingResponse,
+    LoggingMiddleware,
+    StatusResponse,
+    configure_logging,
+    configure_tracing,
+    get_logger,
+    liveness_probe_simple,
+)
 
 # =============================================================================
 # Configuration
 # =============================================================================
 
 
-class Settings(BaseSettings):
+class Settings(FullServiceSettings):
     """Application settings loaded from environment variables."""
-
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     # API service URL (must be set via environment variable)
     api_service_url: str = "http://localhost:8000"
 
-    # Service configuration
+    # Service configuration (inherited from FullServiceSettings)
     service_name: str = "runner"
     service_version: str = "0.1.0"
-    environment: str = "dev"
 
-    # HTTP client settings
-    http_timeout: float = 30.0
+    # HTTP client settings (inherited and extended)
     http_max_retries: int = 3
-
-    # Observability settings
-    enable_tracing: bool = True
-    log_level: str = "INFO"
-    otlp_endpoint: str = "http://localhost:4317"  # ADOT collector endpoint
 
 
 settings = Settings()
@@ -60,100 +52,9 @@ START_TIME = time.time()
 # Logging Configuration
 # =============================================================================
 
-
-def configure_logging() -> None:
-    """Configure structured logging with structlog."""
-    structlog.configure(
-        processors=[
-            structlog.contextvars.merge_contextvars,
-            structlog.stdlib.filter_by_level,
-            structlog.processors.TimeStamper(fmt="iso"),
-            structlog.stdlib.add_logger_name,
-            structlog.stdlib.add_log_level,
-            structlog.stdlib.PositionalArgumentsFormatter(),
-            structlog.processors.StackInfoRenderer(),
-            structlog.processors.format_exc_info,
-            structlog.processors.UnicodeDecoder(),
-            structlog.processors.JSONRenderer(),
-        ],
-        wrapper_class=structlog.stdlib.BoundLogger,
-        context_class=dict,
-        logger_factory=structlog.stdlib.LoggerFactory(),
-        cache_logger_on_first_use=True,
-    )
-
-    # Set log level from settings
-    logging.basicConfig(
-        format="%(message)s",
-        level=getattr(logging, settings.log_level.upper()),
-    )
-
-
-# Configure logging on module import
-configure_logging()
-logger = structlog.get_logger()
-
-
-# =============================================================================
-# OpenTelemetry Configuration
-# =============================================================================
-
-
-def configure_tracing(app: FastAPI | None = None) -> None:
-    """Configure OpenTelemetry tracing with ADOT."""
-    logger.info(
-        "tracing_configuration_starting",
-        enable_tracing=settings.enable_tracing,
-        is_test=bool(os.getenv("PYTEST_CURRENT_TEST")),
-        app_provided=app is not None,
-    )
-
-    # Disable tracing during tests
-    if os.getenv("PYTEST_CURRENT_TEST"):
-        logger.info("tracing_disabled", reason="test_environment")
-        return
-
-    if settings.enable_tracing:
-        logger.info("initializing_otel_components")
-
-        # Create resource with service information
-        resource = Resource.create(
-            {
-                "service.name": f"{settings.service_name}-{settings.environment}",
-                "service.version": settings.service_version,
-                "deployment.environment": settings.environment,
-            }
-        )
-        logger.info("otel_resource_created")
-
-        # Configure OTLP exporter to send traces to ADOT collector
-        otlp_exporter = OTLPSpanExporter(
-            endpoint=settings.otlp_endpoint,
-            insecure=True,  # Use insecure for local ADOT collector
-        )
-        logger.info("otlp_exporter_created", endpoint=settings.otlp_endpoint)
-
-        # Set up tracer provider with batch span processor
-        provider = TracerProvider(resource=resource)
-        processor = BatchSpanProcessor(otlp_exporter)
-        provider.add_span_processor(processor)
-        trace.set_tracer_provider(provider)
-        logger.info("tracer_provider_configured")
-
-        # Instrument HTTPX client for automatic tracing
-        HTTPXClientInstrumentor().instrument()
-        logger.info("httpx_instrumented")
-
-        # Instrument FastAPI app if provided (called from lifespan)
-        if app is not None:
-            FastAPIInstrumentor.instrument_app(app)
-            logger.info("fastapi_instrumented")
-
-        logger.info(
-            "tracing_configured",
-            service=f"{settings.service_name}-{settings.environment}",
-            otlp_endpoint=settings.otlp_endpoint,
-        )
+# Configure logging from shared library
+configure_logging(log_level=settings.log_level)
+logger = get_logger(__name__)
 
 
 # =============================================================================
@@ -176,7 +77,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
 
     # Startup: Configure tracing and initialize shared HTTP client
-    configure_tracing(app)
+    configure_tracing(
+        service_name=settings.service_name,
+        service_version=settings.service_version,
+        environment=settings.environment,
+        app=app,
+    )
 
     logger.info(
         "application_startup",
@@ -212,47 +118,8 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Note: FastAPI instrumentation is now done in the lifespan startup
-# to avoid event loop issues in Lambda/container environments
-
-
-# =============================================================================
-# Request Logging Middleware
-# =============================================================================
-
-
-@app.middleware("http")
-async def logging_middleware(request: Request, call_next):
-    """Log all HTTP requests with structured logging."""
-    start_time = time.time()
-
-    # Add request context to logs
-    structlog.contextvars.clear_contextvars()
-    structlog.contextvars.bind_contextvars(
-        path=request.url.path,
-        method=request.method,
-        client_ip=request.client.host if request.client else None,
-    )
-
-    logger.info(
-        "request_started",
-        path=request.url.path,
-        method=request.method,
-    )
-
-    response = await call_next(request)
-
-    duration = time.time() - start_time
-
-    logger.info(
-        "request_completed",
-        path=request.url.path,
-        method=request.method,
-        status_code=response.status_code,
-        duration_seconds=round(duration, 3),
-    )
-
-    return response
+# Add logging middleware from shared library
+app.add_middleware(LoggingMiddleware)
 
 
 # =============================================================================
@@ -278,32 +145,6 @@ class ApiHealthResponse(BaseModel):
     response_time_ms: float
 
 
-class StatusResponse(BaseModel):
-    """Simple status response."""
-
-    status: str
-
-
-class GreetingRequest(BaseModel):
-    """Request model for greeting endpoint."""
-
-    name: str
-
-
-class GreetingResponse(BaseModel):
-    """Response model for greeting endpoint."""
-
-    message: str
-    version: str
-
-
-class ErrorResponse(BaseModel):
-    """Error response model."""
-
-    error: str
-    detail: str | None = None
-
-
 # =============================================================================
 # Health Check Endpoints
 # =============================================================================
@@ -324,6 +165,8 @@ async def health_check() -> HealthResponse:
     Returns:
         HealthResponse: Health check data
     """
+    from datetime import UTC, datetime
+
     uptime = time.time() - START_TIME
     return HealthResponse(
         status="healthy",
@@ -345,7 +188,7 @@ async def liveness_probe() -> StatusResponse:
     Returns:
         StatusResponse: Simple status indicating the app is alive
     """
-    return StatusResponse(status="alive")
+    return await liveness_probe_simple()
 
 
 @app.get("/readiness", response_model=StatusResponse, tags=["Health"])

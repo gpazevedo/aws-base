@@ -60,7 +60,7 @@ terraform/
 
 ```bash
 # Create first Lambda service (gets root path)
-./scripts/setup-terraform-lambda.sh api false
+./scripts/setup-terraform-lambda.sh api
 
 # Create additional Lambda services (get path prefix)
 ./scripts/setup-terraform-lambda.sh worker
@@ -119,7 +119,7 @@ terraform apply
 
 ```bash
 # Lambda services
-./scripts/setup-terraform-lambda.sh api false
+./scripts/setup-terraform-lambda.sh api
 ./scripts/setup-terraform-lambda.sh worker
 
 # AppRunner services

@@ -2,6 +2,32 @@
 
 This guide explains how to add new Lambda and App Runner services using the provided automation scripts.
 
+## 🚀 Quick Start (Recommended)
+
+**The fastest way to create a new Lambda service:**
+
+```bash
+./scripts/create-lambda-service.sh myservice "Service description"
+```
+
+**The fastest way to create a new App Runner service:**
+
+```bash
+./scripts/create-apprunner-service.sh web "Web service description"
+```
+
+Both scripts create everything automatically:
+
+- Backend service with FastAPI
+- Shared library integration
+- Tests and documentation
+- Service-specific Dockerfile
+- Terraform configuration (optional)
+
+See **[CREATE-SERVICE-QUICKSTART.md](CREATE-SERVICE-QUICKSTART.md)** for details.
+
+---
+
 ## ✅ Prerequisites
 
 - Bootstrap infrastructure deployed (`make bootstrap-apply`)
@@ -10,9 +36,11 @@ This guide explains how to add new Lambda and App Runner services using the prov
 
 ---
 
-## ⚡ Adding a Lambda Service
+## ⚡ Adding a Lambda Service (Manual)
 
 Lambda is best for APIs, event processing, and scheduled tasks.
+
+> 💡 **Tip:** Use `./scripts/create-lambda-service.sh` for automatic setup (recommended)
 
 ### 1. Generate Infrastructure
 
@@ -70,9 +98,49 @@ curl $PRIMARY_URL/worker/health
 
 ---
 
-## 🏃 Adding an App Runner Service
+## 🏃 Adding an App Runner Service (Automatic)
 
 App Runner is best for long-running web apps, WebSockets, or high-concurrency services.
+
+> 💡 **Tip:** Use `./scripts/create-apprunner-service.sh` for automatic setup (recommended)
+
+**Quick Start:**
+
+```bash
+./scripts/create-apprunner-service.sh web "Web frontend service"
+```
+
+This creates everything automatically:
+
+- ✅ Backend service with FastAPI (port 8080)
+- ✅ Shared library integration
+- ✅ Service-specific Dockerfile with ADOT
+- ✅ Tests and documentation
+- ✅ Terraform configuration (optional)
+
+**Next steps after creation:**
+
+```bash
+# 1. Start dev server
+cd backend/web
+uv run python main.py  # Runs on port 8080
+
+# 2. Run tests
+uv run pytest
+
+# 3. Build and deploy
+cd ../..
+./scripts/docker-push.sh dev web Dockerfile.apprunner
+make app-init-dev app-apply-dev
+```
+
+---
+
+## 🏃 Adding an App Runner Service (Manual)
+
+App Runner is best for long-running web apps, WebSockets, or high-concurrency services.
+
+> 💡 **Tip:** Use `./scripts/create-apprunner-service.sh` for automatic setup (recommended)
 
 ### 1. Generate Infrastructure
 

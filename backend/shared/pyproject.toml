@@ -1,0 +1,64 @@
+# =============================================================================
+# Shared Library - Python Project Configuration
+# =============================================================================
+# Common code shared across all backend services
+# =============================================================================
+
+[project]
+name = "shared"
+version = "1.0.0"
+description = "Shared library for fin-advisor backend services"
+requires-python = ">=3.14"
+
+# Dependencies used by the shared library
+dependencies = [
+    # HTTP client
+    "httpx>=0.27.0,<0.28.0",
+
+    # AWS SDK
+    "boto3>=1.35.0,<2.0.0",
+    "botocore>=1.35.0,<2.0.0",
+
+    # Data validation
+    "pydantic>=2.9.0,<3.0.0",
+    "pydantic-settings>=2.6.0,<3.0.0",
+
+    # Structured logging
+    "structlog>=24.4.0,<25.0.0",
+
+    # OpenTelemetry (for distributed tracing)
+    "opentelemetry-api>=1.27.0,<2.0.0",
+    "opentelemetry-sdk>=1.27.0,<2.0.0",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.27.0,<2.0.0",
+    "opentelemetry-instrumentation-fastapi>=0.48b0,<1.0.0",
+    "opentelemetry-instrumentation-httpx>=0.48b0,<1.0.0",
+]
+
+[project.optional-dependencies]
+# Test dependencies
+test = [
+    "pytest>=8.3.0,<9.0.0",
+    "pytest-cov>=6.0.0,<7.0.0",
+    "pytest-asyncio>=0.24.0,<0.25.0",
+    "moto>=5.0.0,<6.0.0",  # For mocking AWS services
+]
+
+# =============================================================================
+# Build System
+# =============================================================================
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+# =============================================================================
+# Setuptools Configuration
+# =============================================================================
+# Configure flat-layout package for shared library
+# The library is structured as a single package with multiple modules
+
+[tool.setuptools]
+packages = ["shared"]
+
+[tool.setuptools.package-dir]
+shared = "."

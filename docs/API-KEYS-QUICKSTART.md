@@ -10,7 +10,7 @@
 
 ```bash
 cd backend/your-service
-uv add --path ../shared
+uv add --editable ../shared
 ```
 
 ### 2. Use ServiceAPIClient
@@ -195,7 +195,6 @@ resource "aws_lambda_function" "api" {
       PROJECT_NAME    = var.project_name
       SERVICE_NAME    = "api"
       API_GATEWAY_URL = local.api_gateway_enabled ? module.api_gateway_shared[0].invoke_url : ""
-      AWS_REGION      = var.aws_region
     }
   }
 }
@@ -213,7 +212,6 @@ resource "aws_apprunner_service" "runner" {
           PROJECT_NAME    = var.project_name
           SERVICE_NAME    = "runner"
           API_GATEWAY_URL = local.api_gateway_enabled ? module.api_gateway_shared[0].invoke_url : ""
-          AWS_REGION      = var.aws_region
         }
       }
     }
@@ -359,7 +357,5 @@ terraform apply
 ## Next Steps
 
 📖 **Full Documentation**: See [PER-SERVICE-API-KEYS.md](PER-SERVICE-API-KEYS.md)
-
-🔍 **Implementation Review**: See [API-KEY-REVIEW.md](API-KEY-REVIEW.md)
 
 🏗️ **Architecture Guide**: See [MULTI-SERVICE-ARCHITECTURE.md](MULTI-SERVICE-ARCHITECTURE.md)

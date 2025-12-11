@@ -39,7 +39,7 @@ cp bootstrap/terraform.tfvars.example bootstrap/terraform.tfvars
 make bootstrap-create bootstrap-init bootstrap-apply
 
 # 3. Deploy application (15 minutes)
-./scripts/setup-terraform-lambda.sh api false
+./scripts/setup-terraform-lambda.sh api
 ./scripts/docker-push.sh dev api Dockerfile.lambda
 make app-init-dev app-apply-dev
 ```
@@ -444,7 +444,7 @@ make bootstrap-create bootstrap-init bootstrap-apply
 **Step 3: Deploy First Service (15 minutes)**
 ```bash
 make setup-terraform-backend
-./scripts/setup-terraform-lambda.sh api false
+./scripts/setup-terraform-lambda.sh api
 ./scripts/docker-push.sh dev api Dockerfile.lambda
 make app-init-dev app-apply-dev
 ```
@@ -576,7 +576,7 @@ This AWS Bootstrap Infrastructure Template represents a **production-ready, ente
 
 ---
 
-**Last Updated:** 2025-11-23
+**Last Updated:** 2024-12-11
 **Version:** 1.0.0
 **Status:** Production Ready ✅
 

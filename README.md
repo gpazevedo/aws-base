@@ -113,10 +113,10 @@ Start with the API service to learn the basics:
 
 ```bash
 # Step 1: Create Lambda service infrastructure for 'api' service
-./scripts/setup-terraform-lambda.sh api false  # Disable API Key for quick start
+./scripts/setup-terraform-lambda.sh api
 
 # Step 2: Build & push Docker image for 'api' service
-./scripts/docker-push.sh dev api Dockerfile.lambda
+./scripts/docker-push.sh dev api
 
 # Step 3: Deploy infrastructure
 make app-init-dev app-apply-dev
@@ -137,7 +137,7 @@ curl $PRIMARY_URL/api/docs  # OpenAPI docs
 make test-api
 ```
 
-> **🔑 API Key:** Disabled by default for easier testing. Enable in production: `enable_api_key = true` in `terraform/environments/prod.tfvars`
+> **🔑 API Key:** Enabled by default for security. Retrieve keys with `terraform output -json service_api_key_values`. For testing without API keys during development, set `enable_service_api_keys = false` in `terraform/environments/dev.tfvars`
 >
 > **📖 All endpoints:** [API-ENDPOINTS.md](docs/API-ENDPOINTS.md)
 
@@ -147,14 +147,14 @@ Now add the runner service to demonstrate service-to-service communication:
 
 ```bash
 # Step 1: Create AppRunner service infrastructure for 'runner' service
-./scripts/setup-terraform-apprunner.sh runner false  # Disable API Key for quick start
+./scripts/setup-terraform-apprunner.sh runner
 
 # When prompted, optionally add to API Gateway
 # y = Add to API Gateway with path /runner (recommended for this example)
 # N = Access directly via AppRunner URL
 
 # Step 2: Build & push Docker image for 'runner' service
-./scripts/docker-push.sh dev runner Dockerfile.apprunner
+./scripts/docker-push.sh dev runner
 
 # Step 3: Deploy runner service
 make app-init-dev app-apply-dev
@@ -217,11 +217,11 @@ The s3vector service provides vector embedding storage in S3, enabling semantic 
 cp terraform/s3-vectors.tf.example terraform/s3-vectors.tf
 
 # Step 2: Create Lambda service infrastructure for 's3vector' service
-./scripts/setup-terraform-lambda.sh s3vector false  # Disable API Key for quick start
+./scripts/setup-terraform-lambda.sh s3vector
 
 # Step 3: Install dependencies and build Docker image
 cd backend/s3vector && uv sync --extra test && cd ../..
-./scripts/docker-push.sh dev s3vector Dockerfile.lambda
+./scripts/docker-push.sh dev s3vector
 
 # Step 4: Configure environment variables for s3vector service
 # Edit terraform/lambda-s3vector.tf and add these to the environment.variables block:
@@ -512,7 +512,7 @@ Amazon Bedrock Titan Text Embeddings V2 uses pay-per-use pricing:
 
 > **💡 Best Practice:** Bedrock is ideal for development, testing, and production workloads with variable traffic. No infrastructure to manage, no idle costs, and automatic scaling.
 
-### 13. Add More Services (Optional)
+### 14. Add More Services (Optional)
 
 You can add as many Lambda and AppRunner services as needed. They all follow the same pattern:
 
@@ -524,8 +524,8 @@ You can add as many Lambda and AppRunner services as needed. They all follow the
 ./scripts/setup-terraform-lambda.sh scheduler  # Creates /scheduler, /scheduler/*
 
 # Step 2: Build & push images
-./scripts/docker-push.sh dev worker Dockerfile.lambda
-./scripts/docker-push.sh dev scheduler Dockerfile.lambda
+./scripts/docker-push.sh dev worker
+./scripts/docker-push.sh dev scheduler
 
 # Step 3: Deploy all services
 make app-init-dev app-apply-dev
@@ -559,8 +559,8 @@ make test-lambda-worker
 ./scripts/setup-terraform-apprunner.sh admin    # Admin dashboard
 
 # Step 2: Build & push images
-./scripts/docker-push.sh dev web Dockerfile.apprunner
-./scripts/docker-push.sh dev admin Dockerfile.apprunner
+./scripts/docker-push.sh dev web
+./scripts/docker-push.sh dev admin
 
 # Step 3: Deploy all AppRunner services
 make app-init-dev app-apply-dev
@@ -582,7 +582,7 @@ cd terraform && terraform output apprunner_admin_url
 >
 > **🔄 Service communication:** Services can communicate with each other via API Gateway paths, direct AppRunner URLs, or Lambda Function URLs. Use Terraform outputs to get service URLs and pass them as parameters when calling the `/inter-service` endpoint.
 
-### 13. GitHub Actions (Optional)
+### 15. GitHub Actions (Optional)
 
 Configure repository secrets (get ARNs from `make bootstrap-output`):
 
@@ -614,11 +614,6 @@ ECR images use **architecture-specific builds** based on deployment target:
 # Local testing (any arch)
 make docker-build-amd64  # For x86_64 machines
 docker run -p 9000:8080 <YOUR-PROJECT>:amd64-latest
-
-# Production (architecture auto-detected from Dockerfile)
-./scripts/docker-push.sh dev api Dockerfile.apprunner  # Builds amd64
-./scripts/docker-push.sh dev api Dockerfile.lambda     # Builds arm64
-./scripts/docker-push.sh dev api Dockerfile.eks        # Builds arm64
 ```
 
 **📖 Details:** [Docker Guide](docs/DOCKER.md)
@@ -704,7 +699,7 @@ make docker-build SERVICE=runner
 make docker-push-dev SERVICE=runner
 
 # Or use the docker-push script directly
-./scripts/docker-push.sh dev runner Dockerfile.apprunner
+./scripts/docker-push.sh dev runner
 ```
 
 Images tagged: `{service}-{env}-{datetime}-{sha}` (e.g., `runner-dev-2025-11-22-abc1234`)

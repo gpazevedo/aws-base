@@ -38,6 +38,7 @@ dependencies = [
 
     # Utilities
     "python-dotenv>=1.0.0,<2.0.0",
+    "shared",
 ]
 
 [project.optional-dependencies]
@@ -79,3 +80,6 @@ omit = ["test_*.py"]
 [tool.coverage.report]
 precision = 2
 show_missing = true
+
+[tool.uv.sources]
+shared = { path = "../shared", editable = true }

@@ -139,17 +139,19 @@ make setup-terraform-backend
 
 **Usage**:
 ```bash
-# Syntax: ./scripts/setup-terraform-lambda.sh [SERVICE_NAME] [ENABLE_API_KEY]
+# Syntax: ./scripts/setup-terraform-lambda.sh [SERVICE_NAME]
 
-# Create Lambda configuration for 'api' service (with API key disabled)
-./scripts/setup-terraform-lambda.sh api false
+# Create Lambda configuration for 'api' service
+./scripts/setup-terraform-lambda.sh api
 
-# Create Lambda configuration for 'worker' service (with API key enabled)
-./scripts/setup-terraform-lambda.sh worker true
+# Create Lambda configuration for 'worker' service
+./scripts/setup-terraform-lambda.sh worker
 
-# Default (creates 'api' service with API key enabled)
+# Default (creates 'api' service)
 ./scripts/setup-terraform-lambda.sh
 ```
+
+**Note**: API key authentication is controlled globally via `enable_service_api_keys` in `terraform/environments/{env}.tfvars` (enabled by default for security).
 
 **What it does**:
 1. Validates that `backend/<service-name>/` directory exists
@@ -210,13 +212,13 @@ cp backend/api/pyproject.toml backend/worker/pyproject.toml
 # Edit worker/main.py for your service logic
 
 # 2. Generate Terraform configuration
-./scripts/setup-terraform-lambda.sh worker false
+./scripts/setup-terraform-lambda.sh worker
 
 # 3. Build and push Docker image
 ./scripts/docker-push.sh dev worker Dockerfile.lambda
 
 # 4. Deploy
-make app-apply-dev
+make app-init-dev app-apply-dev
 ```
 
 **API Gateway Path Routing**:
@@ -1178,7 +1180,7 @@ make setup-terraform-backend
 ./scripts/setup-terraform-base.sh
 
 # 4. Add your first service (Lambda or AppRunner)
-./scripts/setup-terraform-lambda.sh api false
+./scripts/setup-terraform-lambda.sh api
 # or
 ./scripts/setup-terraform-apprunner.sh runner
 

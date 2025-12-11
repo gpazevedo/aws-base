@@ -83,62 +83,247 @@ aws cloudwatch get-metric-statistics \
   --statistics Sum
 ```
 
-### OpenTelemetry Distributed Tracing with ADOT
+### Distributed Tracing with AWS Distro for OpenTelemetry (ADOT)
 
-This project uses **AWS Distro for OpenTelemetry (ADOT)** for distributed tracing instead of the legacy X-Ray SDK.
+This project uses **AWS Distro for OpenTelemetry (ADOT)** for automatic distributed tracing. ADOT provides:
 
-**For Lambda Functions:**
+- ✅ **Automatic instrumentation** - No code changes required
+- ✅ **X-Ray integration** - Seamless integration with AWS X-Ray
+- ✅ **Framework support** - Auto-instruments FastAPI, boto3, httpx, and more
+- ✅ **Trace correlation** - Automatically correlates logs with traces
 
-Add the ADOT Lambda Layer to your function:
+#### Lambda Functions (Layer-Based Approach)
+
+Lambda functions use ADOT as an AWS-managed layer:
 
 ```hcl
-# terraform/resources/lambda-functions.tf
+# terraform/lambda-api.tf
 resource "aws_lambda_function" "api" {
+  function_name = "${var.project_name}-${var.environment}-api"
   # ... other config
 
+  # ADOT Layer - automatically selects arm64 or amd64 based on architecture
   layers = [
-    "arn:aws:lambda:${var.aws_region}:901920570463:layer:aws-otel-python-amd64-ver-1-20-0:3"
+    "arn:aws:lambda:${var.aws_region}:${var.adot_layer_account_id}:layer:aws-otel-python-${var.lambda_architecture == "arm64" ? "arm64" : "amd64"}-${var.adot_layer_python_version}:${var.adot_layer_version_number}"
   ]
 
   environment {
     variables = {
+      # Enable ADOT auto-instrumentation
       AWS_LAMBDA_EXEC_WRAPPER = "/opt/otel-instrument"
-      OPENTELEMETRY_COLLECTOR_CONFIG_FILE = "/var/task/collector.yaml"
+
+      # OpenTelemetry configuration
+      OTEL_SERVICE_NAME                     = "api"
+      OTEL_TRACES_SAMPLER                   = "xray"
+      OTEL_PROPAGATORS                      = "xray"
+      OTEL_PYTHON_DISABLED_INSTRUMENTATIONS = "none"
     }
+  }
+
+  # Enable X-Ray tracing
+  tracing_config {
+    mode = "Active"
   }
 }
 ```
 
-**For App Runner / Container-based services:**
+**Lambda Layer Configuration:**
 
-The application code already includes OpenTelemetry instrumentation:
+- **Account**: 901920570463 (Official AWS ADOT publisher)
+- **Version**: ver-1-32-0 (OpenTelemetry Python v1.32.0, ADOT Collector v0.43.0)
+- **Architecture**: Automatically matches Lambda architecture (arm64/amd64)
+
+**How it works:**
+
+1. Lambda loads the ADOT layer before your code
+2. `AWS_LAMBDA_EXEC_WRAPPER` wraps your handler with auto-instrumentation
+3. ADOT automatically traces:
+   - FastAPI endpoints and middleware
+   - boto3 AWS SDK calls (S3, DynamoDB, Secrets Manager, etc.)
+   - httpx HTTP requests
+   - Database queries
+4. Traces are exported to AWS X-Ray via the built-in collector
+
+**View Lambda traces:**
+```bash
+# Via AWS Console
+# X-Ray → Service Map → Select your service
+
+# View specific traces
+# X-Ray → Traces → Filter by service name
+```
+
+#### App Runner Services (In-Container Approach)
+
+App Runner services use ADOT installed in the container image:
+
+**Dockerfile configuration:**
+
+```dockerfile
+# backend/Dockerfile.apprunner
+
+# Install ADOT dependencies
+RUN uv pip install --no-cache \
+    "opentelemetry-distro[otlp]>=0.24b0" \
+    "opentelemetry-sdk-extension-aws~=2.0" \
+    "opentelemetry-propagator-aws-xray~=1.0"
+
+# Bootstrap automatic instrumentation
+RUN opentelemetry-bootstrap --action=install
+
+# Run with ADOT instrumentation
+CMD ["opentelemetry-instrument", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
+```
+
+**Terraform configuration:**
+
+```hcl
+# terraform/apprunner-runner.tf
+resource "aws_apprunner_service" "runner" {
+  # ... other config
+
+  source_configuration {
+    image_repository {
+      image_configuration {
+        runtime_environment_variables = {
+          # ADOT/OpenTelemetry Configuration
+          OTEL_PROPAGATORS                      = "xray"
+          OTEL_PYTHON_ID_GENERATOR              = "xray"
+          OTEL_METRICS_EXPORTER                 = "none"  # App Runner only accepts traces
+          OTEL_EXPORTER_OTLP_ENDPOINT           = "http://localhost:4317"
+          OTEL_RESOURCE_ATTRIBUTES              = "service.name=runner"
+          OTEL_SERVICE_NAME                     = "runner"
+          OTEL_PYTHON_DISABLED_INSTRUMENTATIONS = "urllib3"
+        }
+      }
+    }
+  }
+
+  # Enable observability with X-Ray
+  observability_configuration {
+    observability_enabled           = true
+    observability_configuration_arn = aws_apprunner_observability_configuration.runner.arn
+  }
+}
+
+# Observability configuration
+resource "aws_apprunner_observability_configuration" "runner" {
+  trace_configuration {
+    vendor = "AWSXRAY"  # App Runner manages the OTLP collector
+  }
+}
+```
+
+**How it works:**
+
+1. ADOT is installed in the container during build
+2. `opentelemetry-instrument` wraps uvicorn with auto-instrumentation
+3. App Runner provides a managed OTLP collector on `localhost:4317`
+4. ADOT automatically traces the same components as Lambda
+5. App Runner forwards traces to AWS X-Ray
+
+**Key differences from Lambda:**
+
+- ❌ **No metrics** - App Runner OTLP collector only accepts traces (must set `OTEL_METRICS_EXPORTER=none`)
+- ✅ **In-container** - ADOT installed via pip, not as a layer
+- ✅ **Managed collector** - App Runner provides the OTLP collector automatically
+
+**View App Runner traces:**
+```bash
+# Via AWS Console
+# App Runner → Services → [service] → Observability tab → View service map
+# This opens CloudWatch ServiceLens with X-Ray traces
+```
+
+#### Automatic Instrumentation Coverage
+
+Both Lambda and App Runner automatically instrument:
+
+| Library/Framework | What's Traced |
+|-------------------|---------------|
+| **FastAPI** | All endpoints, middleware, request/response |
+| **boto3** | S3, DynamoDB, Secrets Manager, all AWS SDK calls |
+| **httpx** | HTTP client requests (inter-service calls) |
+| **requests** | HTTP client requests |
+| **psycopg2** | PostgreSQL database queries |
+| **sqlalchemy** | Database ORM operations |
+
+#### Trace Context and Log Correlation
+
+ADOT automatically adds trace IDs to your logs when using structured logging:
 
 ```python
-# backend/api/main.py
-from opentelemetry import trace
-from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
-from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-from opentelemetry.sdk.trace import TracerProvider
+# Your code (no changes needed!)
+logger.info("processing_payment", user_id=user.id, amount=100)
 
-# Traces are sent to ADOT collector endpoint
-# For App Runner, deploy ADOT collector as sidecar or use compatible backend
+# Output includes trace context automatically:
+{
+  "event": "processing_payment",
+  "user_id": 12345,
+  "amount": 100,
+  "trace_id": "1-5f84c2a3-1234567890abcdef",  # Added by ADOT
+  "span_id": "abcdef1234567890",              # Added by ADOT
+  "timestamp": "2025-12-08T12:34:56.789Z"
+}
 ```
 
-**Dependencies:**
-```toml
-# backend/api/pyproject.toml
-dependencies = [
-    "opentelemetry-api>=1.27.0,<2.0.0",
-    "opentelemetry-sdk>=1.27.0,<2.0.0",
-    "opentelemetry-instrumentation-fastapi>=0.48b0,<1.0.0",
-    "opentelemetry-exporter-otlp-proto-grpc>=1.27.0,<2.0.0",
-]
+#### Viewing Traces in CloudWatch ServiceLens
+
+**Access ServiceLens:**
+
+1. Go to CloudWatch Console
+2. Click "ServiceLens" in the left navigation
+3. Select "Service Map" or "Traces"
+
+**Service Map shows:**
+
+- Service dependencies
+- Request volume between services
+- Error rates
+- Latency percentiles
+
+**Trace details include:**
+
+- Request path through services
+- Individual span timings
+- AWS SDK calls and their latency
+- HTTP requests to external services
+- Database queries
+- Errors and exceptions
+
+#### Updating ADOT Versions
+
+**Lambda:**
+
+```hcl
+# terraform/lambda-variables.tf
+variable "adot_layer_python_version" {
+  default = "ver-1-32-0"  # Update this
+}
+
+variable "adot_layer_version_number" {
+  default = 2  # Update this
+}
 ```
 
-**View traces:**
+**App Runner:**
 
-- Traces are exported to compatible backends (AWS supports ADOT with multiple exporters)
-- Access via CloudWatch ServiceLens or other OpenTelemetry-compatible backends
+```hcl
+# terraform/apprunner-variables.tf
+variable "adot_python_version" {
+  default = ">=0.24b0"  # Update this
+}
+```
+
+Then rebuild and redeploy:
+```bash
+# Lambda - no rebuild needed, just redeploy
+terraform apply
+
+# App Runner - rebuild container image
+./scripts/docker-push.sh dev runner Dockerfile.apprunner
+terraform apply
+```
 
 ### Custom Metrics
 

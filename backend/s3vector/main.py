@@ -2,9 +2,7 @@
 
 import asyncio
 import json
-import logging
 import os
-import sys
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -12,45 +10,37 @@ from datetime import UTC, datetime
 from typing import Any
 
 import boto3
-import httpx
-import structlog
 from botocore.exceptions import ClientError
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, HTTPException
 from mangum import Mangum
-from opentelemetry import trace
-from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
-from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-from opentelemetry.sdk.resources import Resource
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from pydantic import BaseModel, Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from shared import (
+    BaseAWSSettings,
+    FullServiceSettings,
+    LoggingMiddleware,
+    StatusResponse,
+    configure_logging,
+    configure_tracing,
+    get_logger,
+    liveness_probe_simple,
+    readiness_probe_simple,
+)
 
 # =============================================================================
 # Configuration
 # =============================================================================
 
 
-class Settings(BaseSettings):
+class Settings(FullServiceSettings, BaseAWSSettings):
     """Application settings loaded from environment variables."""
 
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
-
-    # Service configuration
+    # Service configuration (inherited from FullServiceSettings)
     service_name: str = "s3vector"
     service_version: str = "1.0.0"
-    environment: str = "dev"
 
-    # AWS Configuration
-    aws_region: str = "us-east-1"
+    # AWS Configuration (inherited from BaseAWSSettings, extended here)
     bedrock_model_id: str = "amazon.titan-embed-text-v2:0"
     vector_bucket_name: str = ""
-
-    # Observability settings
-    enable_tracing: bool = True
-    log_level: str = "INFO"
-    otlp_endpoint: str = "http://localhost:4317"
 
 
 settings = Settings()
@@ -63,80 +53,15 @@ START_TIME = time.time()
 # Logging Configuration
 # =============================================================================
 
-
-def configure_logging() -> None:
-    """Configure structured logging with structlog."""
-    structlog.configure(
-        processors=[
-            structlog.contextvars.merge_contextvars,
-            structlog.stdlib.filter_by_level,
-            structlog.processors.TimeStamper(fmt="iso"),
-            structlog.stdlib.add_logger_name,
-            structlog.stdlib.add_log_level,
-            structlog.stdlib.PositionalArgumentsFormatter(),
-            structlog.processors.StackInfoRenderer(),
-            structlog.processors.format_exc_info,
-            structlog.processors.UnicodeDecoder(),
-            structlog.processors.JSONRenderer(),
-        ],
-        wrapper_class=structlog.stdlib.BoundLogger,
-        context_class=dict,
-        logger_factory=structlog.stdlib.LoggerFactory(),
-        cache_logger_on_first_use=True,
-    )
-
-    logging.basicConfig(
-        format="%(message)s",
-        level=getattr(logging, settings.log_level.upper()),
-    )
-
-
-configure_logging()
-logger = structlog.get_logger()
+configure_logging(log_level=settings.log_level)
+logger = get_logger(__name__)
 
 logger.info(
     "module_initialization",
     service_name=settings.service_name,
     service_version=settings.service_version,
     is_lambda=bool(os.getenv("AWS_LAMBDA_FUNCTION_NAME")),
-    python_version=f"{sys.version_info.major}.{sys.version_info.minor}",
 )
-
-
-# =============================================================================
-# OpenTelemetry Configuration
-# =============================================================================
-
-
-def configure_tracing(app: FastAPI | None = None) -> None:
-    """Configure OpenTelemetry tracing."""
-    if os.getenv("PYTEST_CURRENT_TEST"):
-        logger.info("tracing_disabled", reason="test_environment")
-        return
-
-    if os.getenv("AWS_LAMBDA_FUNCTION_NAME"):
-        logger.info("tracing_disabled", reason="lambda_environment")
-        return
-
-    if settings.enable_tracing:
-        resource = Resource.create(
-            {
-                "service.name": f"{settings.service_name}-{settings.environment}",
-                "service.version": settings.service_version,
-                "deployment.environment": settings.environment,
-            }
-        )
-
-        otlp_exporter = OTLPSpanExporter(endpoint=settings.otlp_endpoint, insecure=True)
-        provider = TracerProvider(resource=resource)
-        processor = BatchSpanProcessor(otlp_exporter)
-        provider.add_span_processor(processor)
-        trace.set_tracer_provider(provider)
-
-        if app is not None:
-            FastAPIInstrumentor.instrument_app(app)
-
-        logger.info("tracing_configured", service=f"{settings.service_name}-{settings.environment}")
 
 
 # =============================================================================
@@ -176,7 +101,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Manage application lifespan."""
     logger.info("lifespan_startup_begin", is_lambda=bool(os.getenv("AWS_LAMBDA_FUNCTION_NAME")))
 
-    configure_tracing(app)
+    configure_tracing(
+        service_name=settings.service_name,
+        service_version=settings.service_version,
+        environment=settings.environment,
+        app=app,
+    )
 
     logger.info(
         "application_startup",
@@ -207,6 +137,9 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Add logging middleware from shared library
+app.add_middleware(LoggingMiddleware)
+
 
 # =============================================================================
 # Pydantic Models
@@ -222,12 +155,6 @@ class HealthResponse(BaseModel):
     version: str
     bedrock_configured: bool
     s3_configured: bool
-
-
-class StatusResponse(BaseModel):
-    """Simple status response."""
-
-    status: str
 
 
 class EmbeddingRequest(BaseModel):
@@ -299,7 +226,7 @@ async def health_check() -> HealthResponse:
 @app.get("/liveness", response_model=StatusResponse, tags=["Health"])
 async def liveness_probe() -> StatusResponse:
     """Kubernetes-style liveness probe."""
-    return StatusResponse(status="alive")
+    return await liveness_probe_simple()
 
 
 @app.get("/readiness", response_model=StatusResponse, tags=["Health"])
@@ -309,7 +236,7 @@ async def readiness_probe() -> StatusResponse:
     if not settings.vector_bucket_name:
         raise HTTPException(status_code=503, detail="S3 bucket not configured")
 
-    return StatusResponse(status="ready")
+    return await readiness_probe_simple()
 
 
 # =============================================================================
@@ -320,7 +247,9 @@ async def readiness_probe() -> StatusResponse:
 @app.post("/embeddings/generate", response_model=EmbeddingResponse, tags=["Embeddings"])
 async def generate_embedding(request: EmbeddingRequest) -> EmbeddingResponse:
     """Generate embedding using Amazon Bedrock Titan model."""
-    logger.info("generating_embedding", text_length=len(request.text), store_in_s3=request.store_in_s3)
+    logger.info(
+        "generating_embedding", text_length=len(request.text), store_in_s3=request.store_in_s3
+    )
 
     start_time = time.time()
 
@@ -350,7 +279,9 @@ async def generate_embedding(request: EmbeddingRequest) -> EmbeddingResponse:
         s3_key = None
         if request.store_in_s3:
             if not request.embedding_id:
-                raise HTTPException(status_code=400, detail="embedding_id required when store_in_s3=true")
+                raise HTTPException(
+                    status_code=400, detail="embedding_id required when store_in_s3=true"
+                )
 
             s3_key = f"embeddings/{request.embedding_id}.json"
             await store_embedding_in_s3(request.embedding_id, request.text, embedding, {})
@@ -372,7 +303,9 @@ async def generate_embedding(request: EmbeddingRequest) -> EmbeddingResponse:
         raise HTTPException(status_code=503, detail=f"Bedrock error: {error_code}") from e
     except Exception as e:
         logger.exception("embedding_generation_failed", error=str(e))
-        raise HTTPException(status_code=500, detail=f"Failed to generate embedding: {str(e)}") from e
+        raise HTTPException(
+            status_code=500, detail=f"Failed to generate embedding: {str(e)}"
+        ) from e
 
 
 @app.post("/embeddings/store", response_model=StoreEmbeddingResponse, tags=["Embeddings"])
@@ -381,11 +314,15 @@ async def store_embedding(request: StoreEmbeddingRequest) -> StoreEmbeddingRespo
     if not settings.vector_bucket_name:
         raise HTTPException(status_code=503, detail="S3 bucket not configured")
 
-    logger.info("storing_embedding", embedding_id=request.embedding_id, dimension=len(request.embedding))
+    logger.info(
+        "storing_embedding", embedding_id=request.embedding_id, dimension=len(request.embedding)
+    )
 
     try:
         s3_key = f"embeddings/{request.embedding_id}.json"
-        await store_embedding_in_s3(request.embedding_id, request.text, request.embedding, request.metadata or {})
+        await store_embedding_in_s3(
+            request.embedding_id, request.text, request.embedding, request.metadata or {}
+        )
 
         logger.info("embedding_stored", s3_key=s3_key)
 
@@ -398,7 +335,9 @@ async def store_embedding(request: StoreEmbeddingRequest) -> StoreEmbeddingRespo
         raise HTTPException(status_code=500, detail=f"Failed to store embedding: {str(e)}") from e
 
 
-@app.get("/embeddings/{embedding_id}", response_model=RetrieveEmbeddingResponse, tags=["Embeddings"])
+@app.get(
+    "/embeddings/{embedding_id}", response_model=RetrieveEmbeddingResponse, tags=["Embeddings"]
+)
 async def retrieve_embedding(embedding_id: str) -> RetrieveEmbeddingResponse:
     """Retrieve embedding from S3."""
     if not settings.vector_bucket_name:
@@ -412,7 +351,9 @@ async def retrieve_embedding(embedding_id: str) -> RetrieveEmbeddingResponse:
 
         data = json.loads(response["Body"].read())
 
-        logger.info("embedding_retrieved", embedding_id=embedding_id, dimension=len(data["embedding"]))
+        logger.info(
+            "embedding_retrieved", embedding_id=embedding_id, dimension=len(data["embedding"])
+        )
 
         return RetrieveEmbeddingResponse(
             embedding_id=data["id"],
@@ -426,7 +367,9 @@ async def retrieve_embedding(embedding_id: str) -> RetrieveEmbeddingResponse:
         raise HTTPException(status_code=404, detail=f"Embedding not found: {embedding_id}")
     except Exception as e:
         logger.exception("embedding_retrieval_failed", embedding_id=embedding_id, error=str(e))
-        raise HTTPException(status_code=500, detail=f"Failed to retrieve embedding: {str(e)}") from e
+        raise HTTPException(
+            status_code=500, detail=f"Failed to retrieve embedding: {str(e)}"
+        ) from e
 
 
 # =============================================================================

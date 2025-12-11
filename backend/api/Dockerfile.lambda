@@ -1,0 +1,40 @@
+# =============================================================================
+# Lambda Container Image for api Service
+# =============================================================================
+# Multi-architecture build for AWS Lambda
+# Supports: linux/amd64, linux/arm64
+# =============================================================================
+
+# Use AWS Lambda Python base image
+FROM public.ecr.aws/lambda/python:3.14
+
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+# Set working directory
+WORKDIR ${LAMBDA_TASK_ROOT}
+
+# Copy shared library first (for layer caching)
+COPY backend/shared/ ./shared/
+
+# Copy service files
+COPY backend/api/pyproject.toml backend/api/uv.lock* ./
+
+# Fix the shared library path in pyproject.toml and uv.lock for Docker environment
+RUN sed -i 's|path = "../shared"|path = "./shared"|g' pyproject.toml && \
+    sed -i 's|editable = "../shared"|editable = "./shared"|g' uv.lock
+
+# Install dependencies to system Python using uv pip
+# Export dependencies from lock file and install to system site-packages
+RUN uv export --no-dev --frozen > requirements.txt && \
+    uv pip install --system --no-cache -r requirements.txt
+
+# Copy application code
+COPY backend/api/main.py ./
+
+# Fix permissions for Lambda runtime
+# Lambda runs as UID 993, ensure all files are readable
+RUN chmod -R a+rX ${LAMBDA_TASK_ROOT}
+
+# Set the Lambda handler
+CMD ["main.handler"]

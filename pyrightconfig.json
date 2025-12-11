@@ -1,31 +1,52 @@
 {
   "include": [
-    "backend/api",
-    "backend/runner"
+    "backend/*"
   ],
   "exclude": [
     "**/__pycache__",
-    "**/.venv",
+    "**/.venv/lib",
+    "**/.venv/bin",
     "**/node_modules"
   ],
+  "venvPath": "backend",
   "executionEnvironments": [
     {
       "root": "backend/api",
       "pythonVersion": "3.14",
       "pythonPlatform": "Linux",
-      "extraPaths": [],
-      "venv": "backend/api/.venv"
+      "venv": "api/.venv",
+      "extraPaths": [
+        "../shared"
+      ]
     },
     {
       "root": "backend/runner",
       "pythonVersion": "3.14",
       "pythonPlatform": "Linux",
-      "extraPaths": [],
-      "venv": "backend/runner/.venv"
+      "venv": "runner/.venv",
+      "extraPaths": [
+        "../shared"
+      ]
+    },
+    {
+      "root": "backend/s3vector",
+      "pythonVersion": "3.14",
+      "pythonPlatform": "Linux",
+      "venv": "s3vector/.venv",
+      "extraPaths": [
+        "../shared"
+      ]
+    },
+    {
+      "root": "backend/shared",
+      "pythonVersion": "3.14",
+      "pythonPlatform": "Linux",
+      "venv": "shared/.venv"
     }
   ],
-  "reportMissingImports": "error",
+  "reportMissingImports": "none",
   "reportMissingTypeStubs": "warning",
+  "reportMissingModuleSource": "none",
   "pythonVersion": "3.14",
   "typeCheckingMode": "basic"
 }

@@ -21,11 +21,11 @@ This document outlines the plan to publish the `shared` library to AWS CodeArtif
 # Configure local environment for CodeArtifact
 source <(./scripts/configure-codeartifact.sh)
 
-# Build shared library
-./scripts/build-shared-library.sh
+# Build common library
+./scripts/build-common-library.sh
 
 # Publish to CodeArtifact
-./scripts/publish-shared-library.sh
+./scripts/publish-common-library.sh
 
 # Build service with CodeArtifact deps
 ./scripts/docker-build-with-codeartifact.sh <service-name>

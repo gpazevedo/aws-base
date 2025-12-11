@@ -38,6 +38,7 @@ def create_health_endpoint(
             status="healthy",
             timestamp=datetime.now(UTC).isoformat(),
             uptime_seconds=round(uptime, 2),
+            name=service_name,
             version=service_version,
         )
 

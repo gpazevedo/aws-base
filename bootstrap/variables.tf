@@ -284,7 +284,7 @@ variable "max_session_duration" {
 variable "apprunner_cpu" {
   description = "CPU units for App Runner service (256 = 0.25 vCPU, 1024 = 1 vCPU, 2048 = 2 vCPU)"
   type        = number
-  default     = 1024
+  default     = 256
 
   validation {
     condition     = contains([256, 512, 1024, 2048, 4096], var.apprunner_cpu)
@@ -295,7 +295,7 @@ variable "apprunner_cpu" {
 variable "apprunner_memory" {
   description = "Memory in MB for App Runner service (512, 1024, 2048, 3072, 4096, etc.)"
   type        = number
-  default     = 2048
+  default     = 512
 
   validation {
     condition     = var.apprunner_memory >= 512 && var.apprunner_memory <= 12288
@@ -322,6 +322,27 @@ variable "lambda_use_container_image" {
   description = "Use container images for Lambda (more flexible than ZIP packages)"
   type        = bool
   default     = true
+}
+
+# =============================================================================
+# CodeArtifact Configuration
+# =============================================================================
+
+variable "enable_codeartifact" {
+  description = "Create CodeArtifact domain and repository for hosting internal Python packages"
+  type        = bool
+  default     = false
+}
+
+variable "codeartifact_domain" {
+  description = "CodeArtifact domain name for package repositories (shared across all environments)"
+  type        = string
+  default     = "agsys"
+
+  validation {
+    condition     = can(regex("^[a-z0-9][a-z0-9-]*[a-z0-9]$", var.codeartifact_domain))
+    error_message = "Domain name must consist of lowercase letters, numbers, and hyphens only"
+  }
 }
 
 # =============================================================================

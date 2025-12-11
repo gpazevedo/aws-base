@@ -51,6 +51,20 @@ python_version = "3.14"   # Python version for Lambda/containers (3.8 to 3.14)
 use_uv_builder = true     # Use uv for dependency management (recommended)
 
 # =============================================================================
+# CodeArtifact Configuration
+# =============================================================================
+
+# Enable CodeArtifact for hosting internal Python packages
+enable_codeartifact = false  # Set to true if you need to host internal packages
+
+# CodeArtifact domain name for hosting internal Python packages
+# Shared across all environments (dev/test/prod)
+# Environment separation is handled through semantic versioning:
+#   - Dev: Use pre-release versions (e.g., 1.2.0a1, 1.2.0b1)
+#   - Prod: Use stable versions (e.g., 1.2.0)
+codeartifact_domain = "agsys"
+
+# =============================================================================
 # ECR Configuration (Container Registry)
 # =============================================================================
 # ECR is automatically enabled if you use Lambda containers, App Runner

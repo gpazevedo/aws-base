@@ -189,6 +189,45 @@ output "default_security_group_id" {
 }
 
 # =============================================================================
+# CodeArtifact Resources
+# =============================================================================
+
+output "codeartifact_domain" {
+  description = "CodeArtifact domain name"
+  value       = var.enable_codeartifact ? aws_codeartifact_domain.main[0].domain : null
+}
+
+output "codeartifact_domain_arn" {
+  description = "ARN of the CodeArtifact domain"
+  value       = var.enable_codeartifact ? aws_codeartifact_domain.main[0].arn : null
+}
+
+output "codeartifact_repository" {
+  description = "CodeArtifact Python repository name"
+  value       = var.enable_codeartifact ? aws_codeartifact_repository.python[0].repository : null
+}
+
+output "codeartifact_repository_arn" {
+  description = "ARN of the CodeArtifact repository"
+  value       = var.enable_codeartifact ? aws_codeartifact_repository.python[0].arn : null
+}
+
+output "codeartifact_repository_endpoint" {
+  description = "CodeArtifact repository endpoint URL"
+  value       = var.enable_codeartifact ? "https://${aws_codeartifact_domain.main[0].domain}-${local.account_id}.d.codeartifact.${var.aws_region}.amazonaws.com/pypi/${aws_codeartifact_repository.python[0].repository}/simple/" : null
+}
+
+output "codeartifact_publish_policy_arn" {
+  description = "ARN of the CodeArtifact publish policy"
+  value       = var.enable_codeartifact ? aws_iam_policy.codeartifact_publish[0].arn : null
+}
+
+output "codeartifact_read_policy_arn" {
+  description = "ARN of the CodeArtifact read policy"
+  value       = var.enable_codeartifact ? aws_iam_policy.codeartifact_read[0].arn : null
+}
+
+# =============================================================================
 # S3 Vector Storage + Amazon Bedrock Embeddings
 # =============================================================================
 
@@ -220,13 +259,19 @@ output "summary" {
     terraform_state_bucket = aws_s3_bucket.terraform_state.id
 
     enabled_features = {
-      lambda    = var.enable_lambda
-      apprunner = var.enable_apprunner
-      eks       = var.enable_eks
-      vpc       = local.create_vpc
-      ecr       = local.enable_ecr
-      test_env  = var.enable_test_environment
+      lambda       = var.enable_lambda
+      apprunner    = var.enable_apprunner
+      eks          = var.enable_eks
+      vpc          = local.create_vpc
+      ecr          = local.enable_ecr
+      test_env     = var.enable_test_environment
+      codeartifact = var.enable_codeartifact
     }
+
+    codeartifact = var.enable_codeartifact ? {
+      domain     = aws_codeartifact_domain.main[0].domain
+      repository = aws_codeartifact_repository.python[0].repository
+    } : null
 
     github_actions_roles = {
       dev  = aws_iam_role.github_actions_dev.arn
@@ -276,6 +321,8 @@ output "next_steps" {
   - EKS: ${var.enable_eks}
   - ECR: ${local.enable_ecr}
   - VPC: ${local.create_vpc}
+  - CodeArtifact: ${var.enable_codeartifact}
+${var.enable_codeartifact ? "\n  CodeArtifact Configuration:\n  - Domain: ${aws_codeartifact_domain.main[0].domain}\n  - Repository: ${aws_codeartifact_repository.python[0].repository}\n  - Configure locally: source <(./scripts/configure-codeartifact.sh)\n" : ""}
 
   EOT
 }

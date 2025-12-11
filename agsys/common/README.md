@@ -1,18 +1,35 @@
-# Shared Library
+# agsys-common
 
-Common code for all backend services. **~70% code reduction per service.**
+Common library for agsys backend services. **~70% code reduction per service.**
 
-## Install
+Published to AWS CodeArtifact for centralized dependency management.
+
+## Installation
+
+### From CodeArtifact (Production)
+
+```bash
+# Configure CodeArtifact authentication
+source <(./scripts/configure-codeartifact.sh)
+
+# Install the package
+cd backend/your-service
+uv add "agsys-common>=0.0.1,<1.0.0"
+```
+
+### Local Development (Editable)
+
+For rapid development and testing local changes:
 
 ```bash
 cd backend/your-service
-uv add --editable ../shared
+uv add --editable ../../agsys/common
 ```
 
 ## Quick Start
 
 ```python
-from shared import (
+from common import (
     configure_logging,
     get_logger,
     ServiceAPIClient,

@@ -1,14 +1,31 @@
 # =============================================================================
-# Shared Library - Python Project Configuration
+# agsys-common - Python Project Configuration
 # =============================================================================
-# Common code shared across all backend services
+# Common code shared across all agsys backend services
+# Published to AWS CodeArtifact for centralized dependency management
 # =============================================================================
 
 [project]
-name = "shared"
-version = "1.0.0"
-description = "Shared library for fin-advisor backend services"
+name = "agsys-common"
+version = "0.0.1"
+description = "Common library for agsys backend services"
+readme = "README.md"
 requires-python = ">=3.14"
+license = { text = "MIT" }
+authors = [
+    { name = "Guilherme Azevedo", email = "gpazevedo@users.noreply.github.com" }
+]
+keywords = ["aws", "lambda", "fastapi", "common-library", "backend"]
+
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.14",
+    "Framework :: FastAPI",
+    "Topic :: Software Development :: Libraries",
+    "Operating System :: OS Independent",
+]
 
 # Dependencies used by the shared library
 dependencies = [
@@ -34,6 +51,11 @@ dependencies = [
     "opentelemetry-instrumentation-httpx>=0.48b0,<1.0.0",
 ]
 
+# Repository information
+[project.urls]
+Repository = "https://github.com/gpazevedo/fin-advisor"
+Documentation = "https://github.com/gpazevedo/fin-advisor/tree/main/docs"
+
 [project.optional-dependencies]
 # Test dependencies
 test = [
@@ -48,17 +70,24 @@ test = [
 # =============================================================================
 
 [build-system]
-requires = ["setuptools>=68.0"]
+requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 # =============================================================================
 # Setuptools Configuration
 # =============================================================================
-# Configure flat-layout package for shared library
+# Configure flat-layout package for common library
 # The library is structured as a single package with multiple modules
 
 [tool.setuptools]
-packages = ["shared"]
+packages = ["common"]
 
 [tool.setuptools.package-dir]
-shared = "."
+common = "."
+
+# =============================================================================
+# Package Data
+# =============================================================================
+
+[tool.setuptools.package-data]
+common = ["py.typed"]

@@ -428,7 +428,7 @@ locals {
 
   # Service API Key configuration
   # Defines the API key for this service when enable_service_api_keys = true
-  ${SERVICE_NAME}_service_api_key = \${var.enable_service_api_keys} ? {
+  ${SERVICE_NAME}_service_api_key = var.enable_service_api_keys ? {
     ${SERVICE_NAME} = {
       quota_limit  = 100000
       quota_period = "MONTH"
@@ -450,7 +450,7 @@ ${S3VECTOR_POLICY_ATTACHMENTS}
 
 # IAM policy for Secrets Manager access (API key retrieval)
 resource "aws_iam_role_policy" "${SERVICE_NAME}_secrets_access" {
-  count = \${var.enable_service_api_keys} ? 1 : 0
+  count = var.enable_service_api_keys ? 1 : 0
 
   name = "\${var.project_name}-\${var.environment}-${SERVICE_NAME}-secrets"
   role = data.aws_iam_role.apprunner_instance_${SERVICE_NAME}.name
@@ -497,10 +497,10 @@ resource "aws_apprunner_service" "${SERVICE_NAME}" {
 
         runtime_environment_variables = merge(
           {
-            ENVIRONMENT     = \${var.environment}
-            PROJECT_NAME    = \${var.project_name}
+            ENVIRONMENT     = var.environment
+            PROJECT_NAME    = var.project_name
             SERVICE_NAME    = "${SERVICE_NAME}"
-            LOG_LEVEL       = \${var.environment} == "prod" ? "INFO" : "DEBUG"
+            LOG_LEVEL       = var.environment == "prod" ? "INFO" : "DEBUG"
 
             # ADOT/OpenTelemetry Configuration for X-Ray Tracing
             # App Runner manages the OTLP collector on localhost:4317
@@ -536,10 +536,10 @@ resource "aws_apprunner_service" "${SERVICE_NAME}" {
   health_check_configuration {
     protocol            = "HTTP"
     path                = local.${SERVICE_NAME}_config.health_check_path
-    interval            = \${var.health_check_interval}
-    timeout             = \${var.health_check_timeout}
-    healthy_threshold   = \${var.health_check_healthy_threshold}
-    unhealthy_threshold = \${var.health_check_unhealthy_threshold}
+    interval            = var.health_check_interval
+    timeout             = var.health_check_timeout
+    healthy_threshold   = var.health_check_healthy_threshold
+    unhealthy_threshold = var.health_check_unhealthy_threshold
   }
 
   # Observability configuration (distributed tracing)
